@@ -242,7 +242,6 @@
       "autonomous-ui-design-contract.md",
       "checkpoints.md",
       "common-bug-patterns.md",
-      "compact-content-gate.md",
       "context-budget.md",
       "continuation-format.md",
       "debugger-bug-taxonomy.md",
@@ -526,7 +525,6 @@
       "review-lane-invocation.cjs",
       "review-lane-runner.cjs",
       "review-reviewer-selection.cjs",
-      "reviewer-step-dispatch.cjs",
       "roadmap-command-router.cjs",
       "roadmap-parser.cjs",
       "roadmap-upgrade.cjs",
@@ -559,7 +557,6 @@
       "surface.cjs",
       "task-command-router.cjs",
       "task-content-resolution.cjs",
-      "tdd-red-evidence.cjs",
       "teams-status.cjs",
       "template.cjs",
       "text-lines.cjs",
@@ -659,8 +656,7 @@
       "execute-phase/steps/protected-branch.md",
       "execute-phase/steps/regression-gate-run.md",
       "execute-phase/steps/regression-gate.md",
-      "execute-phase/steps/sequential-root-pin.md",
-      "execute-phase/steps/tdd-applicability-resolution.md",
+      "execute-phase/steps/session-survivability-dispatch.md",
       "execute-phase/steps/wave-post-gate-hooks.md",
       "execute-phase/steps/worktree-recovery-policy.md",
       "new-milestone/steps/project-md-milestone-write.md",
@@ -700,18 +696,6 @@
       "update/steps/channel-banner.md",
       "verify-work/steps/automated-ui-verification.md",
       "verify-work/steps/mvp-uat-framing.md"
-    ],
-    "workflow_detail": [
-      "complete-milestone/detail/elaboration.md",
-      "docs-update/detail/elaboration.md",
-      "execute-phase/detail/elaboration.md",
-      "new-project/detail/elaboration.md",
-      "plan-phase/detail/elaboration.md",
-      "verify-work/detail/elaboration.md"
-    ],
-    "workflow_templates": [
-      "discuss-phase/templates/context.md",
-      "discuss-phase/templates/discussion-log.md"
     ]
   }
 }
