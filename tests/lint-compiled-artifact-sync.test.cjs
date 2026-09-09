@@ -186,17 +186,50 @@ describe('fix-2657: compiled .cjs artifacts are gitignored, not tracked (ADR-457
     // #4093 CI: this spawn is NOT the PROBE class the shared default below
     // describes. The script's "nothing left to check" path still runs a FULL
     // `tsc -p tsconfig.build.json` compile to a throwaway outDir whenever any
-    // compiled artifact remains tracked (ten are, deliberately — ADR-457's
-    // staged end state), and under CI shard load that compile can exceed the
-    // 15s probe budget, dying to a SIGTERM with empty piped stdout (observed
-    // twice on ubuntu shard 1/3). Per helpers/timeouts.cjs's own rule, a call
-    // site that genuinely differs from its class — "a real `tsc` compile" —
-    // keeps its own local constant with its own justifying comment; see
-    // tests/ensure-runtime-build.test.cjs's BUILD_TIMEOUT_MS for the other
-    // instance. 60s is that same class, sized for the cold-cache CI case.
+    // compiled artifact remains tracked, and under CI shard load that compile
+    // can exceed even a generous budget, dying to a SIGTERM with empty piped
+    // stdout (observed on ubuntu shard 1/3 both pre- and post-#4488). Per
+    // helpers/timeouts.cjs's own rule, a call site that genuinely differs from
+    // its class — "a real `tsc` compile" — keeps its own local constant with
+    // its own justifying comment; see tests/ensure-runtime-build.test.cjs's
+    // BUILD_TIMEOUT_MS for the other instance. 60s is that same class, sized
+    // for the cold-cache CI case.
+    //
+    // #4488: as of this fix the tracked set is fully empty (see the
+    // "fully-empty ADR-457 end state" test above) — trackedCompiledArtifacts()
+    // returning [] means main() short-circuits at its own line ~98 BEFORE ever
+    // invoking `compileToTemp()`, so this spawn no longer runs a real tsc
+    // compile at all. The 60s budget above stays as a guard for whenever a
+    // future module reintroduces a tracked artifact (re-widening the migration
+    // gap this whole file exists to catch), not because this run needs it now.
     const TSC_COMPILE_TIMEOUT_MS = 60000;
     const args = [path.join(REPO_ROOT, 'scripts', 'lint-compiled-artifact-sync.cjs')];
     const result = run(process.execPath, args, { timeoutMs: TSC_COMPILE_TIMEOUT_MS });
     assert.equal(result.status, 0, describeFailure(process.execPath, args, result));
+  });
+
+  test('trackedCompiledArtifacts() reports the fully-empty ADR-457 end state (#4488)', () => {
+    // #4488 CI: tdd-red-evidence.cjs (introduced by #3770/PR #4279, AFTER the
+    // original "nine" this file's other tests pin) was never gitignored —
+    // a tenth, later instance of the exact #2657/#2653 migration-gap defect
+    // class, incidentally surfaced by a #4488 CI run timing out on the real
+    // tsc compile this test's sibling above must run while ANY artifact stays
+    // tracked. Generic (not tied to the closed NINE_ARTIFACTS list above) so
+    // it also catches any future module that lands compiled-but-tracked.
+    let pairs;
+    try {
+      pairs = trackedCompiledArtifacts();
+    } catch (err) {
+      assert.fail(
+        `trackedCompiledArtifacts() threw instead of returning a result:\n` +
+          `${err && err.stack ? err.stack : err}`,
+      );
+    }
+    assert.deepEqual(
+      pairs,
+      [],
+      `expected zero tracked compiled artifacts (ADR-457 end state); still tracked: ` +
+        `${pairs.map((p) => p.artifact).join(', ') || '(none)'}`,
+    );
   });
 });
