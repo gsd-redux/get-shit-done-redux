@@ -808,7 +808,31 @@ function cmdStateUpdate(cwd: string, field: string | undefined, value: string | 
     // (#3345's direction) — reported separately from `updated` because this
     // command's contract is a single-field boolean, not a per-field array.
     const reconciled = reconcileReportedFields(statePath, preWriteState, updated ? [field as string] : [], divergedFields);
-    updated = reconciled.includes(field as string);
+    // #4488: `updateCore` itself already told us whether it matched the field
+    // (`updated`, captured above `readModifyWriteStateMd` runs it) — that is a
+    // real signal, not a guess. `reconcileReportedFields` answers a DIFFERENT
+    // question ("what changed on disk") and, per its own docstring, reports
+    // `[]` whenever `preWriteState.fm` is `undefined`. That happens in two
+    // known cases, both of which mean "no snapshot was ever captured", not
+    // "nothing happened": (a) `readModifyWriteStateMd`'s #948 no-op guard
+    // fires because the transform's output was byte-identical to the input —
+    // the requested value already equals what's on disk, so the field WAS
+    // found and there was simply nothing left to change; (b)
+    // `applyPostSyncPreservation`'s `isUnparseableFrontmatter` early return —
+    // the ORIGINAL frontmatter block was malformed, so preservation never
+    // runs, yet `readModifyWriteStateMd` still persists the transform's raw
+    // output via `platformWriteSync`. In neither case did preservation
+    // discard or rewrite what the transform wrote, so trusting the
+    // transform's own `updated` signal here is never a false positive.
+    // Collapsing either case into the same `false` as "field not found" is
+    // the #4488 bug — `explainUpdateFailure` then reports a message that is
+    // actively false (it tells the caller to add a line that is already
+    // there). Every other `false` origin (case-D fallback did not apply, or
+    // the transform genuinely found nothing) is unaffected: there
+    // `preWriteState.fm` is defined (a normal sync ran) or `updated` was
+    // already false before this line.
+    const noopBecauseAlreadyCorrect = updated && preWriteState.fm === undefined;
+    updated = reconciled.includes(field as string) || noopBecauseAlreadyCorrect;
     const preserved = reconciled.filter((f) => f !== field);
 
     if (updated) {
