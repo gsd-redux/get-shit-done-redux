@@ -196,6 +196,9 @@ function main() {
   // than inventing a new number. Confirmed via real Windows CI: a 10s
   // window was insufficient twice under ~51-file concurrent test load.
   const NPM_VERSION_TIMEOUT_MS = 15_000;
+  // No try/catch needed: spawnSync's documented contract routes ENOENT and a
+  // timeout-triggered kill through the RETURNED result's `.error` field, not
+  // a thrown exception -- there is nothing here for a catch to intercept.
   const npmVersionSpawn = spawnSync(npmCmd, ['--version'], { encoding: 'utf8', timeout: NPM_VERSION_TIMEOUT_MS, shell: process.platform === 'win32' });
   const npmVersionResult = {
     exitCode: npmVersionSpawn.status ?? 1,

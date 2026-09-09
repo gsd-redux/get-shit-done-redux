@@ -46,6 +46,13 @@ function describeNpmVersionCheckFailure(result) {
   if (result.exitCode !== 0) {
     return `npm --version exited ${result.exitCode} with no usable output`;
   }
+  if (result.exitCode === 0) {
+    // npm ran and exited cleanly but printed nothing -- distinct from every
+    // case above (which all involve a failed/absent spawn), so it gets its
+    // own message rather than falling through to "not found on PATH", which
+    // would misdescribe a real npm binary that simply produced no output.
+    return 'npm --version exited 0 but produced no output';
+  }
   return 'npm binary not found on PATH';
 }
 

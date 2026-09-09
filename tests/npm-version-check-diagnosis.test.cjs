@@ -61,11 +61,14 @@ describe('describeNpmVersionCheckFailure (#4460)', () => {
     );
   });
 
-  test('exitCode 0 with no stdout (defensive default) falls back to the original message', () => {
+  test('exitCode 0 with no stdout gets its own message, not the "not found" fallback', () => {
+    // npm ran and exited cleanly but printed nothing -- distinct from every
+    // other branch (all of which involve a failed/absent spawn); must not be
+    // misdescribed as "not found on PATH" when the binary plainly ran.
     const result = { exitCode: 0, stdout: '', stderr: '', signal: null, error: null, timedOut: false };
     assert.equal(
       describeNpmVersionCheckFailure(result),
-      'npm binary not found on PATH',
+      'npm --version exited 0 but produced no output',
     );
   });
 });
