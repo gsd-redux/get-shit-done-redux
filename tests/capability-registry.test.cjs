@@ -6286,7 +6286,11 @@ const WORKFLOWS_DIR = path.join(__dirname, '..', 'gsd-core', 'workflows');
  * between the ```bash / ```sh / ```shell fence markers.
  */
 function extractShellBlocks(content) {
-  const allLines = content.split('\n');
+  // #4489: CRLF-safe split (mirrors src/text-lines.cts's splitLines() and the
+  // fixed sibling copy in tests/runtime-launcher-parity.test.cjs:221) — a bare
+  // '\n' split leaves a trailing \r on every line on a CRLF checkout, which
+  // reaches lineHasBareGsdTools' whitespace tokenizer below.
+  const allLines = content.split(/\r?\n/);
   const blocks = [];
   let inBlock = false;
   let blockLang = null;
@@ -6368,6 +6372,41 @@ function lineHasBareGsdTools(line) {
 }
 
 const AGENTS_DIR = path.join(__dirname, '..', 'agents');
+
+describe('bug #4489: extractShellBlocks is CRLF-safe (sibling of #4409)', () => {
+  test('a CRLF-line-ending fenced block yields lines with no trailing \\r', () => {
+    const content = [
+      '# doc',
+      '',
+      '```bash',
+      'echo one',
+      'echo two',
+      '```',
+      '',
+    ].join('\r\n');
+    const blocks = extractShellBlocks(content);
+    assert.strictEqual(blocks.length, 1, 'expected exactly one extracted block');
+    assert.deepStrictEqual(blocks[0].lines, ['echo one', 'echo two']);
+    for (const line of blocks[0].lines) {
+      assert.ok(!line.includes('\r'), `line carried a trailing/embedded \\r: ${JSON.stringify(line)}`);
+    }
+  });
+
+  test('LF-only input is unaffected (pre-existing behavior unchanged)', () => {
+    const content = [
+      '# doc',
+      '',
+      '```sh',
+      'echo one',
+      'echo two',
+      '```',
+      '',
+    ].join('\n');
+    const blocks = extractShellBlocks(content);
+    assert.strictEqual(blocks.length, 1);
+    assert.deepStrictEqual(blocks[0].lines, ['echo one', 'echo two']);
+  });
+});
 
 describe('bug #1041: agent files must not call bare gsd-tools (all-runtime resolver)', () => {
   test('no agents/gsd-*.md file contains a bare gsd-tools command', () => {
