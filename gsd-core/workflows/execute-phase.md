@@ -627,6 +627,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
      # `dispatch-isolation --json`; see the isolation-dispatch fragment).
      # Emit the declared token — do NOT hardcode a runtime's flag.
      {harnessFlag},
+     run_in_background={SESSION_OUTLIVES_TURN_BOOL},
      prompt="
        <objective>
        Execute plan {plan_number} of phase {phase_number}-{phase_name}.

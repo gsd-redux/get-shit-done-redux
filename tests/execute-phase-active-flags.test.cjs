@@ -148,6 +148,20 @@ describe('#3159: session-survivability executor dispatch', () => {
     assert.ok(wfVerifierStart !== -1 && wfVerifierEnd !== -1, 'verifier step in workflow must exist');
     const wfVerifier = workflow.slice(wfVerifierStart, wfVerifierEnd);
     assert.match(wfVerifier, /run_in_background=\{SESSION_OUTLIVES_TURN_BOOL\}/);
+
+    const executorPointer = workflow.indexOf('Read `execute-phase/steps/session-survivability-dispatch.md`');
+    const executorAgentStart = workflow.indexOf('Agent(', executorPointer);
+    const executorAgentEnd = workflow.indexOf('\n   )', executorAgentStart);
+    assert.ok(executorPointer !== -1, 'executor dispatch fragment pointer must exist');
+    assert.ok(
+      executorAgentStart !== -1 && executorAgentEnd !== -1,
+      'executor Agent() call must exist after fragment pointer',
+    );
+    assert.match(
+      workflow.slice(executorAgentStart, executorAgentEnd),
+      /run_in_background=\{SESSION_OUTLIVES_TURN_BOOL\}/,
+      'the primary executor Agent() call must thread the resolved session-survivability mode',
+    );
   });
 
   test('uses foreground dispatch when a session-survivability config read is malformed or fails', () => {
