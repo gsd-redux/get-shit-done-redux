@@ -29,6 +29,7 @@ export const CANONICAL_EXACT: ReadonlySet<string> = new Set([
   'milestone.lock', // #3311: milestone (phase + session) claim (src/milestone-lock.cts); persistent, unlike the transient STATE.md.lock/WAITING.json
   'state.json', // #3227: machine-readable state contract published at step boundaries (src/state-contract.cts)
   'skill-manifest.json', // init.cts routeSkillManifest --write (project-scoped planning root, #3964)
+  'PATTERNS.md', // #4282: graduated cross-phase patterns (workflows/graduation.md, `patterns` target) -- distinct from the per-phase NN-PATTERNS.md (templates/README.md)
 ]);
 
 // Pattern-match canonical file names (regex tests on the basename)
