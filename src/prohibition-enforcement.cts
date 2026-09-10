@@ -42,7 +42,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 // Import the leaf I/O module directly (core.cjs re-export spine retired in epic #1267).
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import io = require('./io.cjs');
@@ -450,6 +450,79 @@ const NODE_TEST_TIMEOUT_MS = 30_000;
 const ESLINT_TIMEOUT_MS = 60_000;
 const CHECK_MAX_BUFFER = 16 * 1024 * 1024;
 
+/** Windows `taskkill` resolved by ABSOLUTE path — never a bare PATH-resolved name. A project
+ * directory used as the child's `cwd` could otherwise contain a planted `taskkill.exe`/`.bat`
+ * that Windows executable resolution picks up ahead of the real one (#3660 review, minor-9). */
+function taskkillPath(): string {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  return path.join(root, 'System32', 'taskkill.exe');
+}
+
+/**
+ * Reap the process TREE rooted at `pid` after THIS call's own bound killed it (#3660: `node --test`
+ * forks a per-file WORKER by default since Node 22 — `execFileSync`'s `timeout` signals only the
+ * direct child/runner, never the worker, which is reparented to PID 1 and can busy-loop forever).
+ *
+ * POSIX: the child was spawned `detached` (its own process group, pgid === pid), so `-pid` addresses
+ * the whole group. ESRCH (group already gone) is swallowed — the subject may have exited on its own
+ * between the timeout firing and this call.
+ *
+ * Windows has no process-group equivalent; `taskkill /PID <pid> /T /F` walks the live process tree by
+ * parent-PID instead, which does not require the parent PID to still be alive. A non-zero exit means
+ * "nothing left to kill" (already gone, or never had descendants) — not a failure, so it is never
+ * escalated; there is no portable stronger primitive to escalate TO.
+ *
+ * Never throws — this runs from a `catch`/`finally` path and must not itself become the error.
+ */
+function reapDescendants(pid: number | undefined): void {
+  if (typeof pid !== 'number' || pid <= 0) return; // defensive: never signal pid 0 (self) or negative
+  if (process.platform === 'win32') {
+    try {
+      spawnSync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    } catch {
+      // best-effort: a missing taskkill.exe is not this call's problem to escalate
+    }
+    return;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // ESRCH: group already gone -- nothing to reap
+  }
+}
+
+/**
+ * `execFileSync`, with descendant reaping layered on top. Same contract (same return value, throws
+ * the identical error) EXCEPT that when — and ONLY when — this call's OWN timeout killed the child
+ * (the thrown error carries a `signal`), any descendants the child forked are also reaped.
+ *
+ * Gating strictly on `signal` (rather than reaping on every throw) matters: an ordinary non-zero exit
+ * (a real test/lint failure) has `signal: null` — the child exited on its own, so a reap there would
+ * fire on every red run for no reason and, on POSIX, risks signalling a process group whose pgid was
+ * *already* recycled by something unrelated in the time since (the #3660 review's Blocker-3 defect in
+ * the prior attempt at this fix, PR #3681). Only the timeout-kill path is targeted.
+ *
+ * Spawns `detached` on POSIX so the reap above can address the whole process group; omitted on
+ * Windows (no such flag there — `@types/node`'s `ExecFileSyncOptions` doesn't declare `detached`
+ * either, hence the cast below, though libuv honors it identically to `spawnSync`).
+ */
+function execFileSyncReaping(
+  file: string,
+  args: readonly string[],
+  options: { cwd: string; encoding: 'utf-8'; stdio: ['ignore', 'pipe', 'pipe']; windowsHide: true; env: NodeJS.ProcessEnv; timeout: number; maxBuffer: number },
+): string {
+  const spawnOptions = process.platform === 'win32' ? options : ({ ...options, detached: true } as typeof options & { detached: true });
+  try {
+    return execFileSync(file, args, spawnOptions);
+  } catch (e) {
+    const err = e as { pid?: unknown; signal?: unknown };
+    if (typeof err.pid === 'number' && err.signal) {
+      reapDescendants(err.pid);
+    }
+    throw e;
+  }
+}
+
 /** Resolve the effective timeout: only a POSITIVE override is honored — `0` (which Node treats as
  * "no timeout") or a negative value falls back to the bounded default, so the subprocess is ALWAYS
  * bounded (a `timeoutMs: 0` injection can never disable the bound). */
@@ -467,7 +540,7 @@ function posTimeout(timeoutMs: number | undefined, def: number): number {
  */
 function runNodeTestWithSubject(check: CheckDescriptor, cwd: string, subject: string, timeoutMs?: number): string {
   try {
-    return execFileSync(process.execPath, buildNodeTestArgs(check), {
+    return execFileSyncReaping(process.execPath, buildNodeTestArgs(check), {
       cwd,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -487,7 +560,7 @@ function defaultRunCheck(check: CheckDescriptor, cwd: string, timeoutMs?: number
     if (check.kind === 'node-test') {
       let out = '';
       try {
-        out = execFileSync(process.execPath, buildNodeTestArgs(check), {
+        out = execFileSyncReaping(process.execPath, buildNodeTestArgs(check), {
           cwd,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -509,7 +582,7 @@ function defaultRunCheck(check: CheckDescriptor, cwd: string, timeoutMs?: number
       if (!eslintCli) return { passed: false }; // eslint not installed -> fail closed, never throw
       let json = '';
       try {
-        json = execFileSync(process.execPath, [eslintCli, ...buildLintArgs(check)], {
+        json = execFileSyncReaping(process.execPath, [eslintCli, ...buildLintArgs(check)], {
           cwd,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -566,7 +639,7 @@ function defaultProveFailFirst(check: CheckDescriptor, cwd: string, timeoutMs?: 
       if (!eslintCli) return { provenFailFirst: false }; // eslint not installed -> fail closed, never throw
       let json = '';
       try {
-        json = execFileSync(process.execPath, [eslintCli, ...buildLintArgs({ ...check, target: fixture })], {
+        json = execFileSyncReaping(process.execPath, [eslintCli, ...buildLintArgs({ ...check, target: fixture })], {
           cwd,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
