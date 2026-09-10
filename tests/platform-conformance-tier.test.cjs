@@ -35,7 +35,7 @@ describe('classifyContent — happy-path signals', () => {
   });
 
   test('flags os.platform()', () => {
-    const { needsRealOs, signals } = classifyContent("const p = require('os').platform();");
+    const { needsRealOs, signals } = classifyContent("const os = require('node:os');\nconst p = os.platform();");
     assert.equal(needsRealOs, true);
     assert.ok(signals.includes('os-platform'));
   });
