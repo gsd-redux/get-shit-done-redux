@@ -811,8 +811,13 @@ describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
       let stat;
       try {
         stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
-      } catch {
-        return false; // /proc/<pid> gone -- the process (and any zombie remnant) is fully reaped
+      } catch (err) {
+        // ENOENT: /proc/<pid> genuinely gone -- fully reaped, no zombie remnant. Any OTHER read
+        // error (EACCES, EIO, ...) is inconclusive -- report "alive" rather than risk a false
+        // "dead" that would silently mask a real regression (a liveness check should fail loud
+        // via a longer retry loop, not fail quiet via a wrong verdict).
+        if (err && err.code === 'ENOENT') return false;
+        return true;
       }
       // Format: "pid (comm) state ...". comm may contain spaces/parens, so split on the LAST ')'.
       const afterComm = stat.slice(stat.lastIndexOf(')') + 1).trim();
@@ -837,6 +842,11 @@ describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
     }
     return alive;
   }
+
+  test('isAlive(pid) correctly reports TRUE for a genuinely running process (own pid) -- closes the vacuous-test gap: without this, a probe that always returned false would pass every #3660 test below trivially', () => {
+    assert.equal(isAlive(process.pid), true,
+      'isAlive must report this test\'s own (unambiguously running) process as alive');
+  });
 
   test('a HANGING node-test leaves no orphaned descendant behind (#3660: worker survives runner-only kill)', async (t) => {
     const enforce = require(ENFORCEMENT_LIB);
