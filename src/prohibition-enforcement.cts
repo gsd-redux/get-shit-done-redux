@@ -483,9 +483,13 @@ function reapDescendants(pid: number | undefined): void {
     const exe = taskkillPath();
     if (!exe) return; // no safe absolute path available -- best-effort, skip rather than guess
     try {
-      spawnSync(exe, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      // 5s bound (DEFECT.UNBOUNDED-SUBPROCESS): a local OS command, not a network call -- if
+      // taskkill itself hangs, this function's own "never throws" contract already treats that
+      // identically to any other failure (swallowed below), so a bounded timeout costs nothing
+      // and just prevents a stuck taskkill from blocking the caller forever.
+      spawnSync(exe, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
     } catch {
-      // best-effort: a missing taskkill.exe is not this call's problem to escalate
+      // best-effort: a missing taskkill.exe (or a timeout) is not this call's problem to escalate
     }
     return;
   }
