@@ -782,6 +782,120 @@ jobs:
           CI_JOB_TIMEOUT_MINUTES: '45'
         run: node scripts/ci-check-job-near-cap.cjs
 
+  # #4591 (epic #4589 Phase 2): runs ONLY the platform-conformance-tier file
+  # list (scripts/lib/platform-conformance-tier.generated.cjs) on real
+  # Windows/macOS — the OS-agnostic bulk of the suite already ran once on
+  # ubuntu-latest in the `test` job above. Gated the same way `test-full` is
+  # (product code changed AND full_matrix). Unsharded for this first cut: the
+  # conformance tier (currently 565 files) is materially smaller than the full
+  # suite `test-full` already 3-shards, and no real per-file timing exists yet
+  # to justify a specific shard count — see
+  # .gsd/phase/chore-4591-conformance-tier-linux-primary/40-design.md
+  # "Rejected" #3. `test-full` (above) keeps running the WHOLE suite on the
+  # same OSes as a non-gating safety net for one release cycle (see
+  # `required-tests` below) — this job is the new GATING signal for
+  # windows/macos coverage.
+  test-conformance:
+    name: conformance test (${{ matrix.os }}, ${{ matrix.node-version }})
+    needs: [changes, preflight]
+    if: needs.changes.outputs.code_changed == 'true' && needs.changes.outputs.full_matrix == 'true'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    # No LANE_COSTS entry exists yet for this brand-new job — see
+    # tests/ci-test-job-timeout-budget.test.cjs's own header: "no unit test
+    # can prove a lane fits its budget — only a real CI run measures that."
+    # Generous and unchanged from test-full's own budget until a real
+    # measurement exists; the smaller file count should comfortably undercut
+    # this ceiling.
+    timeout-minutes: 45
+    env:
+      GSD_PLUGIN_ROOT: .ci-gsd-plugin-root-disabled
+      GSD_STRICT_LIVE_CONFIG_GUARD: ${{ matrix.os != 'windows-latest' && '1' || '' }}
+      GSD_EMITTED_BASE: ${{ github.event.pull_request.base.sha }}
+      AUDIT_BASELINE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event_name == 'push' && github.event.before) || (github.event_name == 'merge_group' && github.event.merge_group.base_sha) || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            node-version: 24
+            shell: pwsh
+          - os: macos-latest
+            node-version: 24
+            shell: 'zsh {0}'
+
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1 (Windows)
+        if: runner.os == 'Windows'
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ github.token }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (Linux/macOS)
+        if: runner.os != 'Windows'
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ github.token }}
+
+      - name: Record job start time (near-cap check)
+        run: node -e 'require("fs").appendFileSync(process.env.GITHUB_ENV, "CI_JOB_START_EPOCH_MS=" + Date.now() + "\n")'
+
+      - name: Guard — require GitHub-hosted runner
+        run: node scripts/ci-guard-runner.cjs
+
+      - name: Rebase check — merge PR base branch into PR head
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CI_REBASE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ci-rebase-check.cjs
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f  # v6.3.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Environment check
+        run: npm run check:env
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency integrity gate
+        run: node scripts/check-npm-integrity.cjs
+
+      - name: Restore emitted-baseline cache
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: .gsd-cache/emitted-baseline.json
+          key: emitted-baseline-${{ github.event.pull_request.base.sha }}
+
+      # #4591: the generated conformance-tier list is a .cjs module (so
+      # scripts/gen-platform-conformance-tier.cjs's own tests and other
+      # scripts can `require()` it directly) — run-tests.cjs --files-from
+      # expects a plain newline-delimited text file, so this step bridges
+      # the two, one path per line, matching the existing scoped-lane
+      # convention (.ci-selected-tests.txt).
+      - name: Prepare conformance-tier test list
+        run: node -e "require('./scripts/lib/platform-conformance-tier.generated.cjs').CONFORMANCE_TIER_FILES.forEach(f => console.log(f))" > .ci-conformance-tests.txt
+
+      - name: Run platform-conformance-tier tests
+        run: node scripts/run-tests.cjs --files-from .ci-conformance-tests.txt
+
+      - name: Check job budget (near-cap advisory)
+        if: always()
+        continue-on-error: true
+        env:
+          CI_JOB_LABEL: "conformance test (${{ matrix.os }}, ${{ matrix.node-version }})"
+          CI_JOB_TIMEOUT_MINUTES: '45'
+        run: node scripts/ci-check-job-near-cap.cjs
+
   # #2952: the coverage gate that the `test` lane used to run inline. Sharding
   # the unit suite means no single runner sees the whole picture, so the gate
   # moves here, downloads every shard's raw V8 dumps into one coverage/tmp, and
@@ -929,6 +1043,7 @@ jobs:
       - test
       - test-inert
       - test-full
+      - test-conformance
       - coverage-gate
       - qa-loop-walk
     if: always()
@@ -944,6 +1059,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           LINT_RESULT: ${{ needs.lint-tests.result }}
           TEST_RESULT: ${{ needs.test.result }}
+          TEST_CONFORMANCE_RESULT: ${{ needs.test-conformance.result }}
           INERT_RESULT: ${{ needs.test-inert.result }}
           FULL_TEST_RESULT: ${{ needs.test-full.result }}
           COVERAGE_GATE_RESULT: ${{ needs.coverage-gate.result }}
@@ -957,6 +1073,7 @@ jobs:
           echo "changes=$CHANGES_RESULT"
           echo "lint-tests=$LINT_RESULT"
           echo "test=$TEST_RESULT"
+          echo "test-conformance=$TEST_CONFORMANCE_RESULT"
           echo "test-inert=$INERT_RESULT"
           echo "test-full=$FULL_TEST_RESULT"
           echo "coverage-gate=$COVERAGE_GATE_RESULT"
@@ -1002,13 +1119,27 @@ jobs:
               echo "::error::test matrix did not pass"
               exit 1
             fi
+            # #4591 (epic #4589 Phase 2): test-conformance is the new gating
+            # signal for real Windows/macOS coverage — the conformance-tier
+            # file list, not the whole suite.
+            if [ "$TEST_CONFORMANCE_RESULT" != "success" ] && [ "$TEST_CONFORMANCE_RESULT" != "skipped" ]; then
+              echo "::error::platform-conformance-tier matrix did not pass"
+              exit 1
+            fi
             # #2952: the coverage gates no longer run inside the `test` matrix —
             # sharding moved them to the `coverage-gate` job, which merges every
             # shard's dumps. TEST_RESULT therefore does NOT cover them any more;
             # COVERAGE_GATE_RESULT below is what gates coverage.
+            # #4591 (epic #4589 Phase 2): downgraded from a hard gate to a
+            # non-blocking safety net for one release cycle, per the epic's
+            # phased-rollout design — test-conformance (above) is now the real
+            # gate for windows/macos coverage. A red full-suite run here is
+            # still surfaced (it means the conformance-tier classifier missed
+            # something) but does not block merge; retire this job entirely
+            # in a follow-up once the classifier has proven itself over one
+            # release cycle with no such miss.
             if [ "$FULL_TEST_RESULT" != "success" ] && [ "$FULL_TEST_RESULT" != "skipped" ]; then
-              echo "::error::full parity matrix did not pass"
-              exit 1
+              echo "::warning::full legacy parity matrix did not pass (non-gating safety net — see #4591)"
             fi
 
             # #2952: the coverage gate is skipped when product code did not change
