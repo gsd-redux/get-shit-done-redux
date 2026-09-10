@@ -487,14 +487,17 @@ function reapDescendants(pid: number | undefined): void {
   try {
     process.kill(-pid, 'SIGKILL');
   } catch {
-    // ESRCH: group already gone -- nothing to reap
+    // Swallows ESRCH (group already gone -- nothing to reap) and any other errno (e.g. EPERM) --
+    // this helper never throws regardless of cause; see the function's own doc comment above.
   }
 }
 
 /**
  * `execFileSync`, with descendant reaping layered on top. Same contract (same return value, throws
- * the identical error) EXCEPT that when — and ONLY when — this call's OWN timeout killed the child
- * (the thrown error carries a `signal`), any descendants the child forked are also reaped.
+ * the identical error) EXCEPT that when — and ONLY when — this call's OWN bound killed the child (a
+ * timeout OR a `maxBuffer` overflow — both terminate the child by SIGNAL, so both set `.signal` on
+ * the thrown error; an ordinary non-zero exit does not), any descendants the child forked are also
+ * reaped.
  *
  * Gating strictly on `signal` (rather than reaping on every throw) matters: an ordinary non-zero exit
  * (a real test/lint failure) has `signal: null` — the child exited on its own, so a reap there would
