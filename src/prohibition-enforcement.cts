@@ -524,35 +524,12 @@ function execFileSyncReaping(
   options: { cwd: string; encoding: 'utf-8'; stdio: ['ignore', 'pipe', 'pipe']; windowsHide: true; env: NodeJS.ProcessEnv; timeout: number; maxBuffer: number },
 ): string {
   const spawnOptions = process.platform === 'win32' ? options : ({ ...options, detached: true } as typeof options & { detached: true });
-  process.stderr.write(`[GSD-DEBUG-3660b] spawning pid-to-be file=${file} detached=${(spawnOptions as { detached?: unknown }).detached} platform=${process.platform}\n`);
   try {
     return execFileSync(file, args, spawnOptions);
   } catch (e) {
     const err = e as { pid?: unknown; code?: unknown };
-    process.stderr.write(`[GSD-DEBUG-3660b] caught pid=${err.pid} code=${err.code} gateMatch=${typeof err.pid === 'number' && err.code === 'ETIMEDOUT'}\n`);
     if (typeof err.pid === 'number' && err.code === 'ETIMEDOUT') {
-      const pid = err.pid as number;
-      try {
-        process.kill(-pid, 0);
-        process.stderr.write(`[GSD-DEBUG-3660b] group ${pid} probe BEFORE reap: alive\n`);
-      } catch (probeErr) {
-        process.stderr.write(`[GSD-DEBUG-3660b] group ${pid} probe BEFORE reap: ${(probeErr as { code?: unknown }).code}\n`);
-      }
-      try {
-        process.kill(-pid, 'SIGKILL');
-        process.stderr.write(`[GSD-DEBUG-3660b] process.kill(-${pid}, SIGKILL) returned normally (no throw)\n`);
-      } catch (killErr) {
-        process.stderr.write(`[GSD-DEBUG-3660b] process.kill(-${pid}, SIGKILL) THREW: ${(killErr as { code?: unknown; message?: unknown }).code} ${(killErr as { message?: unknown }).message}\n`);
-      }
-      for (let i = 0; i < 5; i += 1) {
-        try {
-          process.kill(-pid, 0);
-          process.stderr.write(`[GSD-DEBUG-3660b] group ${pid} probe #${i} AFTER reap (own pid): alive\n`);
-        } catch (probeErr2) {
-          process.stderr.write(`[GSD-DEBUG-3660b] group ${pid} probe #${i} AFTER reap (own pid): ${(probeErr2 as { code?: unknown }).code}\n`);
-        }
-      }
-      reapDescendants(pid);
+      reapDescendants(err.pid);
     }
     throw e;
   }

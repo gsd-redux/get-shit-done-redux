@@ -797,8 +797,29 @@ describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
     throw new Error(`pidfile ${pidfilePath} was never written within the retry budget`);
   }
 
-  /** Liveness probe via `process.kill(pid, 0)` (throws ESRCH when dead) — no process-list scan. */
+  /** Liveness probe. `process.kill(pid, 0)` alone cannot distinguish a genuinely-running process
+   * from an already-killed ZOMBIE stuck unreaped in a container with no init process to collect
+   * orphans (a real, confirmed condition on this repo's own Linux CI bench) -- both report "exists"
+   * with no throw. On Linux, read /proc/<pid>/stat's process-state field (3rd whitespace-separated
+   * token, inside the trailing `)` after the command name, which itself may contain spaces/parens)
+   * and treat state 'Z' (zombie) as DEAD -- it is no longer executing or consuming CPU, which is
+   * the actual thing #3660 cares about. Falls back to the plain kill(pid,0) probe on non-Linux
+   * platforms (no /proc there) and if /proc/<pid>/stat is unreadable for any reason (already fully
+   * gone, permissions, etc. -- ENOENT there means genuinely dead too). */
   function isAlive(pid) {
+    if (process.platform === 'linux') {
+      let stat;
+      try {
+        stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf-8');
+      } catch {
+        return false; // /proc/<pid> gone -- the process (and any zombie remnant) is fully reaped
+      }
+      // Format: "pid (comm) state ...". comm may contain spaces/parens, so split on the LAST ')'.
+      const afterComm = stat.slice(stat.lastIndexOf(')') + 1).trim();
+      const state = afterComm.split(/\s+/)[0];
+      if (state === 'Z') return false; // zombie: already dead, just not yet reaped by its parent
+      return true;
+    }
     try {
       process.kill(pid, 0);
       return true;
