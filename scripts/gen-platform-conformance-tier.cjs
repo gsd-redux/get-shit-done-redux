@@ -11,7 +11,7 @@
  * Only `unit`-suite test files (no suite suffix, per `scripts/run-tests.cjs`'s
  * `suiteOf()`) are considered for the conformance tier. `install`-,
  * `security`-, `slow`-, `integration`-, and `qa`-suffixed files are excluded
- * entirely — never merely deprioritized — for two independent reasons: (1)
+ * entirely — never merely deprioritized — for three independent reasons: (1)
  * `install`/`slow` are explicitly PR-excluded suites
  * (`scripts/affected-tests-lib.cjs`'s `PR_EXCLUDED_SUITES`; "PRs must never
  * select or run these"), and this generator's output feeds a `pull_request`-
@@ -19,7 +19,11 @@
  * separate, dedicated, unsharded, shard-1-only steps in the `test`/
  * `test-full` jobs (.github/workflows/test.yml) — folding any of them into
  * this job's generic `--files-from` + `--shard` invocation is unproven and,
- * per the incident below, unsafe. Real incident that surfaced this: a live
+ * per the incident below, unsafe. (3) `qa` (loop-walk-suite files) already
+ * runs via its own separate, dedicated `qa-loop-walk` job
+ * (.github/workflows/test.yml) — the same rationale as (2): a purpose-built
+ * home already exists, so folding it into this job's generic invocation
+ * duplicates coverage without benefit. Real incident that surfaced this: a live
  * CI run's `conformance test (windows-latest, shard 2/3)` job was killed with
  * 11 tests in flight — including `tests/release-tarball-smoke.install.test.cjs`
  * — because this generator had (wrongly) placed an `install`-suite file into
