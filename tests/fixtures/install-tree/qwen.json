@@ -623,6 +623,7 @@
   "scripts/lib/exit-code-registry.cjs",
   "scripts/lib/ndjson-reporter.cjs",
   "scripts/lib/npm-version-check-diagnosis.cjs",
+  "scripts/lib/platform-conformance-tier.generated.cjs",
   "scripts/lib/shellcheck-fetch.cjs",
   "skills/gsd-ns-context/SKILL.md",
   "skills/gsd-ns-context/skills/docs-update/SKILL.md",

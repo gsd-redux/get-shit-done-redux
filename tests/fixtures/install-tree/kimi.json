@@ -591,6 +591,7 @@
   "scripts/lib/exit-code-registry.cjs",
   "scripts/lib/ndjson-reporter.cjs",
   "scripts/lib/npm-version-check-diagnosis.cjs",
+  "scripts/lib/platform-conformance-tier.generated.cjs",
   "scripts/lib/shellcheck-fetch.cjs",
   "skills/gsd-add-tests/SKILL.md",
   "skills/gsd-ai-integration-phase/SKILL.md",
