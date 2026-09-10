@@ -150,6 +150,14 @@ const CATEGORIES = [
   },
 ];
 
+// Two CATEGORIES entries precise enough for TEST-file classification (this
+// module's own purpose) but far too broad for SOURCE-file reachability
+// (scripts/ci-test-scope.cjs's #4592 use). Empirically verified: applying
+// classifyContent to every file under src/ (235 files) flags 100 of them,
+// driven almost entirely by these two categories; excluding them narrows it
+// to 28 files, all verified to carry a genuine platform-conditional branch.
+const NOISY_FOR_SOURCE_REACHABILITY = new Set(['hardcoded-path-vs-path-call', 'symlink-keyword']);
+
 /**
  * Pure classifier: given a test file's raw string content, returns which
  * platform-conformance categories matched and whether the file needs real-OS
@@ -333,4 +341,4 @@ if (require.main === module) {
   runMain(main);
 }
 
-module.exports = { classifyContent, CATEGORIES, walkTestFiles, classifyTree, renderGeneratedFile };
+module.exports = { classifyContent, CATEGORIES, NOISY_FOR_SOURCE_REACHABILITY, walkTestFiles, classifyTree, renderGeneratedFile };

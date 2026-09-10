@@ -15,10 +15,14 @@ const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'ci-test-scope.cjs');
 const WORKFLOWS_DIR = path.join(ROOT, '.github', 'workflows');
 
-function scopeFor(files) {
-  const r = runNode([SCRIPT, '--files', files.join(' ')], { cwd: ROOT, timeoutMs: PROBE_TIMEOUT_MS });
+function scopeForAt(files, cwd) {
+  const r = runNode([SCRIPT, '--files', files.join(' ')], { cwd, timeoutMs: PROBE_TIMEOUT_MS });
   assert.strictEqual(r.exitCode, 0, `stderr: ${r.stderr}\nstdout: ${r.stdout}`);
   return JSON.parse(r.stdout);
+}
+
+function scopeFor(files) {
+  return scopeForAt(files, ROOT);
 }
 
 describe('ci-test-scope.cjs', () => {
@@ -77,8 +81,14 @@ describe('ci-test-scope.cjs', () => {
       `expected policy-lint-shallow-checkout in targeted_tests for inert CI, got: ${JSON.stringify(result.targeted_tests)}`);
   });
 
-  test('TS runtime sources (src/semver.cts) — code_changed true, product_changed true, full_matrix false, semver tests targeted', () => {
-    const result = scopeFor(['src/semver.cts']);
+  test('TS runtime sources (src/semver-compare.cts) — code_changed true, product_changed true, full_matrix false, semver tests targeted', () => {
+    // #4592: must be a REAL, on-disk src/ file with no narrow platform signal.
+    // A nonexistent path (the former fixture, 'src/semver.cts', names no real
+    // file in this repo) now hits reachesConformanceTierOrSeam's readFileSync
+    // fail-safe (ENOENT → full_matrix=true by design), which would silently
+    // test the fail-safe path instead of this test's actual subject: the "TS
+    // runtime sources" RULES entry has no fullMatrix field of its own.
+    const result = scopeFor(['src/semver-compare.cts']);
     assert.strictEqual(result.code_changed, true,
       `expected code_changed=true for src/ change, got: ${JSON.stringify(result)}`);
     assert.strictEqual(result.product_changed, true,
@@ -284,8 +294,13 @@ describe('ci-test-scope superset invariant (#494, rescinded by #4421)', () => {
   // the scoped windows lane instead of triggering the full parity matrix.
   // Rescinded per #4421 (2026-09-06 RCA: PR #4384 shipped a macOS-only
   // regression invisible pre-merge because of exactly this carve-out) — a
-  // changed test file now ALWAYS sets full_matrix=true, in addition to still
-  // joining the scoped windows lane.
+  // changed test file always joins the scoped windows lane, and (until
+  // #4592) ALWAYS set full_matrix=true too. #4592 replaces that blanket rule
+  // with a reachability check: full_matrix now fires only when the changed
+  // test file is tagged in Phase 2's CONFORMANCE_TIER_FILES (or is the
+  // classification mechanism itself). A1/A2 below are real, committed
+  // conformance-tier files, so they still assert full_matrix=true — for the
+  // new, documented reason, not the removed blanket rule.
   test('A1: a changed test file joins the windows scoped lane AND triggers full_matrix', () => {
     const result = scopeFor(['tests/perf-317-context-monitor-fs.test.cjs']);
     assert.strictEqual(result.full_matrix, true,
@@ -306,10 +321,17 @@ describe('ci-test-scope superset invariant (#494, rescinded by #4421)', () => {
       `expected hint-less changed test in windows_tests, got: ${JSON.stringify(result.windows_tests)}`);
   });
 
-  test('A3: a deleted/nonexistent test path falls back to the unit token, still triggers full_matrix', () => {
+  test('A3: a deleted/nonexistent test path falls back to the unit token; full_matrix now depends on conformance-tier reachability (#4592)', () => {
+    // Pre-#4592, the removed blanket rule forced full_matrix=true for ANY
+    // changed tests/*.test.cjs path regardless of on-disk existence or
+    // content. #4592 replaces that with direct CONFORMANCE_TIER_FILES
+    // membership — a path absent from the committed list is treated as
+    // genuinely Linux-safe, not as uncertain (design doc's explicit policy),
+    // so a synthetic/nonexistent path with no tier entry now yields
+    // full_matrix=false.
     const result = scopeFor(['tests/some-new.test.cjs']);
-    assert.strictEqual(result.full_matrix, true,
-      `expected full_matrix=true even for a nonexistent tests/*.test.cjs path — the matrix decision is made on the changed-file name, not on-disk existence (rescinded #494 carve-out, see #4421), got: ${JSON.stringify(result)}`);
+    assert.strictEqual(result.full_matrix, false,
+      `expected full_matrix=false for a tests/*.test.cjs path absent from CONFORMANCE_TIER_FILES (#4592), got: ${JSON.stringify(result)}`);
     // The nonexistent file is filtered by existingTests(); with nothing left,
     // the #408 fallback applies so the targeted lane still runs something.
     assert.deepStrictEqual(result.targeted_tests, ['unit']);
@@ -915,6 +937,173 @@ describe('code_changed=false implies clean output invariant', () => {
   });
 });
 
+
+describe('#4592 reachability-based full_matrix classifier', () => {
+  // Row 1: a real, committed conformance-tier test file forces full_matrix,
+  // and the reason names the new mechanism (not a generic path-prefix rule).
+  test('full_matrix true for a conformance-tier test file', () => {
+    const { CONFORMANCE_TIER_FILES } = require('../scripts/lib/platform-conformance-tier.generated.cjs');
+    assert.ok(CONFORMANCE_TIER_FILES.length > 0, 'precondition: committed tier list must be non-empty');
+    const file = CONFORMANCE_TIER_FILES[0];
+    const result = scopeFor([file]);
+    assert.strictEqual(result.full_matrix, true,
+      `expected full_matrix=true for conformance-tier file ${file}, got: ${JSON.stringify(result)}`);
+    assert.ok(result.reasons.includes(`${file}: conformance-tier reachability`),
+      `expected reasons to name the conformance-tier mechanism, got: ${JSON.stringify(result.reasons)}`);
+  });
+
+  // Row 2: the whole point of the change — a changed test file that is NOT in
+  // CONFORMANCE_TIER_FILES and matches no other RULES entry must NOT force
+  // full_matrix.
+  test('full_matrix false for a non-conformance-tier test file alone', () => {
+    const { CONFORMANCE_TIER_FILES } = require('../scripts/lib/platform-conformance-tier.generated.cjs');
+    const file = 'tests/some-brand-new-non-tier.test.cjs';
+    assert.ok(!CONFORMANCE_TIER_FILES.includes(file), 'precondition: fixture path must not be tier-tagged');
+    const result = scopeFor([file]);
+    assert.strictEqual(result.full_matrix, false,
+      `expected full_matrix=false for a non-conformance-tier test file, got: ${JSON.stringify(result)}`);
+  });
+
+  // Row 3: named #4421 regression — the exact file from PR #4384 must still
+  // force full_matrix, now for the documented reachability reason instead of
+  // the removed blanket rule.
+  test('#4421 regression: state-todos-render.test.cjs still forces full_matrix, for the documented reason', () => {
+    const file = 'tests/state-todos-render.test.cjs';
+    const { CONFORMANCE_TIER_FILES } = require('../scripts/lib/platform-conformance-tier.generated.cjs');
+    assert.ok(CONFORMANCE_TIER_FILES.includes(file),
+      'precondition: state-todos-render.test.cjs must be present in the committed conformance tier');
+    const result = scopeFor([file]);
+    assert.strictEqual(result.full_matrix, true,
+      `expected full_matrix=true for the #4421 regression file, got: ${JSON.stringify(result)}`);
+    assert.ok(result.reasons.includes(`${file}: conformance-tier reachability`),
+      `expected reasons to name the conformance-tier mechanism (not the removed blanket rule), got: ${JSON.stringify(result.reasons)}`);
+  });
+
+  // Row 4: the seam file itself always forces full_matrix — its own content
+  // carries genuine narrow platform signals (process-platform, raw-child-
+  // process, etc.), so this is the organic content-check path, not a special
+  // case in the code.
+  test('full_matrix true when the seam file itself changes', () => {
+    const result = scopeFor(['src/shell-command-projection.cts']);
+    assert.strictEqual(result.full_matrix, true,
+      `expected full_matrix=true for the seam file, got: ${JSON.stringify(result)}`);
+    assert.ok(result.reasons.includes('src/shell-command-projection.cts: platform seam reachability'),
+      `expected reasons to name platform seam reachability, got: ${JSON.stringify(result.reasons)}`);
+  });
+
+  // Rows 5-7: minimal constructed src/ fixtures (not a real, drifting file) —
+  // same temp-tree pattern as the '#837 three-dot diff' test above, but
+  // invoked via --files (no git commit needed).
+  test('full_matrix true for a non-seam src/ file with a genuine platform signal', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-4592-narrow-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'tests'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, 'src'), { recursive: true });
+      const file = 'src/narrow-signal-fixture.cts';
+      fs.writeFileSync(path.join(tmp, file), "if (process.platform === 'win32') { doWindowsThing(); }\n");
+
+      const result = scopeForAt([file], tmp);
+      assert.strictEqual(result.full_matrix, true,
+        `expected full_matrix=true for a src/ file with a narrow platform signal, got: ${JSON.stringify(result)}`);
+      assert.ok(result.reasons.includes(`${file}: platform seam reachability`),
+        `expected reasons to name platform seam reachability, got: ${JSON.stringify(result.reasons)}`);
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
+  test('full_matrix false for a src/ file with only noisy signals', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-4592-noisy-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'tests'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, 'src'), { recursive: true });
+      const file = 'src/noisy-only-fixture.cts';
+      // Matches ONLY hardcoded-path-vs-path-call (path.join + a leading-slash
+      // literal) and symlink-keyword ("symlink") — no narrow signal at all.
+      fs.writeFileSync(
+        path.join(tmp, file),
+        "const p = path.join(root, 'x');\nassert.equal(rendered, '/etc/passwd');\n// see symlink handling elsewhere\n",
+      );
+
+      const result = scopeForAt([file], tmp);
+      assert.strictEqual(result.full_matrix, false,
+        `expected full_matrix=false for a src/ file with only noisy signals, got: ${JSON.stringify(result)}`);
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
+  test('full_matrix false for a src/ file with no platform signal', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-4592-clean-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'tests'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, 'src'), { recursive: true });
+      const file = 'src/no-signal-fixture.cts';
+      fs.writeFileSync(path.join(tmp, file), 'function add(a, b) { return a + b; }\n');
+
+      const result = scopeForAt([file], tmp);
+      assert.strictEqual(result.full_matrix, false,
+        `expected full_matrix=false for a src/ file with zero signals, got: ${JSON.stringify(result)}`);
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
+  // Rows 8-10: the classifier's own definition files always fail-safe to
+  // full_matrix=true — a change to the classification mechanism itself
+  // cannot be presumed safe by the very mechanism being changed.
+  for (const file of [
+    'scripts/lib/platform-conformance-tier.generated.cjs',
+    'scripts/gen-platform-conformance-tier.cjs',
+    'scripts/lib/suite-detection.cjs',
+  ]) {
+    test(`full_matrix true when ${file} itself changes`, () => {
+      const result = scopeFor([file]);
+      assert.strictEqual(result.full_matrix, true,
+        `expected full_matrix=true for classifier definition file ${file}, got: ${JSON.stringify(result)}`);
+      assert.ok(result.reasons.includes(`${file}: reachability classifier definition changed`),
+        `expected reasons to name the classifier-definition fail-safe, got: ${JSON.stringify(result.reasons)}`);
+    });
+  }
+
+  // Row 11: fail-safe when the generated tier module fails to load. Exercised
+  // in-process against the real, exported classify()/reachesConformanceTierOrSeam
+  // with an injected loader that throws — no real file is corrupted, and this
+  // proves the failure propagates all the way through classify() without an
+  // uncaught exception escaping it.
+  describe('full_matrix true when the generated tier module fails to load', () => {
+    const { classify, reachesConformanceTierOrSeam } = require('../scripts/ci-test-scope.cjs');
+    const throwingDeps = { loadConformanceTier: () => { throw new Error('simulated load failure'); } };
+
+    test('reachesConformanceTierOrSeam fails safe to true, does not throw', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = reachesConformanceTierOrSeam('tests/some.test.cjs', throwingDeps);
+      });
+      assert.strictEqual(result, true);
+    });
+
+    test('classify() propagates the fail-safe without an uncaught exception', () => {
+      let result;
+      assert.doesNotThrow(() => {
+        result = classify(['tests/some.test.cjs'], throwingDeps);
+      });
+      assert.strictEqual(result.full_matrix, true,
+        `expected full_matrix=true when the tier module fails to load, got: ${JSON.stringify(result)}`);
+    });
+  });
+
+  // Row 13: pairing a conformance-tier test file with an inert-workflow-only
+  // file must not be overridden by the inert-CI normalization, since
+  // productOrPipelineChanged is already true for any tests/ path.
+  test('full_matrix stays true when a conformance-tier test file is paired with an inert workflow file', () => {
+    const { CONFORMANCE_TIER_FILES } = require('../scripts/lib/platform-conformance-tier.generated.cjs');
+    const tierFile = CONFORMANCE_TIER_FILES[0];
+    const result = scopeFor([tierFile, '.github/workflows/stale.yml']);
+    assert.strictEqual(result.full_matrix, true,
+      `expected full_matrix=true even paired with an inert workflow file, got: ${JSON.stringify(result)}`);
+  });
+});
 
 // ────────────────────────────────────────────────────────────────────────
 // Folded from tests/bug-641-files-from-suite-token.test.cjs — consolidation epic #1969 (B6 #1975)
