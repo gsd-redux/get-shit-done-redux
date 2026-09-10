@@ -45,7 +45,7 @@
  * path in its output; distinguishing genuinely path-embedding renderers from
  * ordinary path-consuming functions like fs.readFileSync would require
  * tracing into the callee's body, which is out of scope for a single-file AST
- * rule — see Known boundaries (e) below, added after a repo-wide sweep with
+ * rule — see Known boundaries (d) below, added after a repo-wide sweep with
  * the ORIGINAL two-hop design found this exact false-positive shape live in
  * the existing suite: `assert.match(md, /regex/)` where
  * `md = fs.readFileSync(path.join(...))` was flagged purely because
@@ -57,24 +57,24 @@
  *
  * ── Known boundaries ────────────────────────────────────────────────────────
  *
- * (b) Function-parameter provenance is not traced. If the path-tainted value
+ * (a) Function-parameter provenance is not traced. If the path-tainted value
  *     arrives as a parameter to the enclosing function/callback rather than a
  *     local `const`/`let` declaration, there is no declarator initializer to
  *     resolve to and the rule does not flag it.
  *
- * (c) Name-based matching only, inherited from portability-vocab.cjs's
+ * (b) Name-based matching only, inherited from portability-vocab.cjs's
  *     PATH_RETURNING_FNS: a shadowed local `path`/`os` identifier is STILL
  *     treated as the real module (matching sibling rule no-path-literal-in-assert's
  *     own documented boundary) — this can rarely over-fire on a shadowed name,
  *     an accepted precedent already shipped in this catalog.
  *
- * (d) Does not re-derive the production truncation threshold. This rule flags
+ * (c) Does not re-derive the production truncation threshold. This rule flags
  *     the test-side anti-pattern (asserting on rendered text that embeds a
  *     path), not the specific numeric boundary that made any one incident
  *     OS-specific — that would require analyzing the render function's own
  *     body, which is out of scope for a single-file test-lint rule.
  *
- * (e) Does not trace through any function call's arguments to infer that the
+ * (d) Does not trace through any function call's arguments to infer that the
  *     call's return value embeds them. This means the LITERAL historical
  *     #4421/#2618 incident shape (a call to a cross-file production render
  *     function, e.g. `renderPendingTodoBullet({ filePath: tmpFile })`, whose
@@ -91,7 +91,7 @@
  *     `fs.readFileSync(path.join(...))` + `assert.match` patterns, which are
  *     correct code, not instances of this defect.
  *
- * (f) Does not flag a bare path-returning call used directly as the receiver
+ * (e) Does not flag a bare path-returning call used directly as the receiver
  *     (with no surrounding template literal) — e.g. `path.join(a, b).length
  *     > 240`, `full.endsWith('.md')`, `resolved.startsWith(root)`, or
  *     `dir.length > 0`. Asserting a property of a path value itself (its own
@@ -178,11 +178,11 @@ const rule = {
       return node;
     }
 
-    // True ONLY when `exprNode` is (after POSIX-normalizer suppression) a
+    // True when `exprNode` is (after POSIX-normalizer suppression) a
     // TemplateLiteral with at least one interpolated expression that is
     // path-tainted. A bare path-returning call with no surrounding template
-    // literal is NOT taint on its own — see "Known boundaries" (f) in the
-    // file header: asserting on a path value itself (its own suffix/prefix/
+    // literal is NOT taint on its own — see "Known boundaries" (e) in the file
+    // header: asserting on a path value itself (its own suffix/prefix/
     // non-emptiness/length) is not the target defect class.
     function isDirectPathTaint(exprNode) {
       if (!exprNode) return false;
@@ -194,22 +194,20 @@ const rule = {
     }
 
     // An interpolated expression inside a template literal counts as taint if
-    // it is (after unwrapping a String() cast) directly a path-returning
-    // call, or is itself a nested template literal with tainted
-    // interpolation.
+    // it is (after unwrapping a String() cast) directly a path-returning call,
+    // or is itself a nested template literal with tainted interpolation
+    // (delegates back to isDirectPathTaint for that case rather than
+    // re-implementing the walk).
     function isTaintedInterpolation(exprNode) {
       if (!exprNode) return false;
       const unwrapped = unwrapString(exprNode);
       if (isPathReturningCall(unwrapped)) return true;
-      if (exprNode.type === 'TemplateLiteral') {
-        return exprNode.expressions.some((e) => isTaintedInterpolation(e));
-      }
-      return false;
+      return isDirectPathTaint(exprNode);
     }
 
     // True when `receiverNode` — after ONE identifier hop — resolves to a
     // template literal with path-tainted interpolation. A bare path-returning
-    // call on its own never qualifies (see "Known boundaries" (f)).
+    // call on its own never qualifies (see "Known boundaries" (e)).
     function isPathTaintedReceiver(receiverNode) {
       if (!receiverNode) return false;
       const resolved = resolveOneHop(receiverNode);
