@@ -344,33 +344,39 @@ describe('#4573: pinOperatorPrefix / fixRow — mechanical --fix for Dependabot-
   });
 
   test('fixRow preserves the pin\'s original range-operator style when rewriting package.json', (t) => {
+    // Isolates BOTH real-file writes fixRow makes: the vendoredCjs copy (redirected to a temp
+    // path, same reasoning as the two tests above) AND the package.json pin rewrite this test
+    // specifically exercises (redirected via fixRow's pkgRoot parameter to an isolated temp
+    // root containing its own package.json + node_modules/js-yaml/package.json). Neither the
+    // real vendored .cjs nor the real package.json is touched -- both are readable at module
+    // top-level by other concurrently-running node --test files, the same race class already
+    // fixed for the vendored .cjs.
     const row = jsYamlRow();
-    // fixRow's first line unconditionally copies onto row.vendoredCjs regardless of what this
-    // test exercises -- redirect it to a private temp path (same reasoning as the two tests
-    // above: never write the real, shared, concurrently-`require()`-able vendored js-yaml.cjs).
-    // This test's actual subject (package.json pin rewriting) is unaffected by this redirect.
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-vendored-deps-fixrow-'));
-    const tempVendoredAbs = path.join(tmpDir, 'js-yaml.cjs');
     t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    const tempVendoredAbs = path.join(tmpDir, 'js-yaml.cjs');
     const tempRow = { ...row, vendoredCjs: tempVendoredAbs };
-    const pkgPath = path.join(REPO_ROOT, 'package.json');
-    const installedPkgPath = path.join(REPO_ROOT, 'node_modules', 'js-yaml', 'package.json');
-    const installedVersion = JSON.parse(fs.readFileSync(installedPkgPath, 'utf8')).version;
 
-    const originalContent = fs.readFileSync(pkgPath, 'utf8');
-    t.after(() => {
-      fs.writeFileSync(pkgPath, originalContent);
-    });
+    const realInstalledPkgPath = path.join(REPO_ROOT, 'node_modules', 'js-yaml', 'package.json');
+    const installedVersion = JSON.parse(fs.readFileSync(realInstalledPkgPath, 'utf8')).version;
 
-    const pkg = JSON.parse(originalContent);
+    const tempPkgRoot = path.join(tmpDir, 'pkgroot');
+    const tempNodeModulesJsYamlDir = path.join(tempPkgRoot, 'node_modules', 'js-yaml');
+    fs.mkdirSync(tempNodeModulesJsYamlDir, { recursive: true });
     const stalePin = installedVersion === '4.0.0' ? '~4.0.1' : '~4.0.0';
-    pkg.devDependencies['js-yaml'] = stalePin;
-    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    fs.writeFileSync(
+      path.join(tempPkgRoot, 'package.json'),
+      `${JSON.stringify({ devDependencies: { 'js-yaml': stalePin } }, null, 2)}\n`,
+    );
+    fs.writeFileSync(
+      path.join(tempNodeModulesJsYamlDir, 'package.json'),
+      `${JSON.stringify({ name: 'js-yaml', version: installedVersion }, null, 2)}\n`,
+    );
 
-    const findings = fixRow(tempRow);
+    const findings = fixRow(tempRow, tempPkgRoot);
     assert.deepEqual(findings, [], `expected fixRow to leave zero findings, got: ${JSON.stringify(findings)}`);
 
-    const after = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const after = JSON.parse(fs.readFileSync(path.join(tempPkgRoot, 'package.json'), 'utf8'));
     const pinnedAfter = after.devDependencies['js-yaml'];
     assert.equal(
       pinnedAfter,
