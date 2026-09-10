@@ -404,7 +404,7 @@ Two properties are load-bearing and easy to break:
   failure message only.
 
 Gated: `test.yml` (`lint-tests`, `test`, `test-inert`, `test-full`,
-`coverage-gate`, `qa-loop-walk`, `required-tests`), `install-smoke.yml`,
+`test-conformance`, `coverage-gate`, `qa-loop-walk`, `required-tests`), `install-smoke.yml`,
 `mutation.yml`, `security-scan.yml`, `docs-required.yml`,
 `changeset-required.yml`, `default-flip-documentation.yml`, `branch-naming.yml`.
 
@@ -547,6 +547,17 @@ cap stays at least the **headroom factor** (1.5x) above a documented,
 hand-measured cost for that job — now all four of the jobs above, not just
 `test`/`test-full`/`coverage-gate`/`test-inert` as before.
 
+`test-conformance` in `test.yml` (#4591, epic #4589 Phase 2) runs the
+`scripts/lib/platform-conformance-tier.generated.cjs` file list on
+`windows-latest` (sharded three ways) and `macos-latest` (unsharded) — the
+gating signal for real-OS coverage, replacing `test-full`'s old gating role
+for one release cycle while `test-full` runs as a non-gating safety net. It
+also declares a `timeout-minutes` cap and runs the same in-job near-cap check
+described below, but it has no `LANE_COSTS` entry in
+`tests/ci-test-job-timeout-budget.test.cjs` yet — no real, completed
+(non-cancelled) per-shard measurement exists — so the headroom-factor gate
+does not cover it until one lands.
+
 Two runtime mechanisms sit on top of that static gate, both new in #4036:
 
 - **In-job near-cap check** (`scripts/ci-check-job-near-cap.cjs`) — the last
@@ -561,7 +572,7 @@ Two runtime mechanisms sit on top of that static gate, both new in #4036:
   `scripts/ci-timeout-report.cjs`) — runs daily and on `workflow_dispatch`. It
   polls GitHub's Actions REST API for recently completed jobs across
   `test.yml`, `mutation.yml`, and `install-smoke.yml`, resolves each job's
-  declared cap (a literal `timeout-minutes` for `test`/`test-full`/`smoke`, or
+  declared cap (a literal `timeout-minutes` for `test`/`test-full`/`test-conformance`/`smoke`, or
   `scripts/mutation-matrix.cjs`'s `COVERED[<module>].timeoutMinutes` for
   `mutate`'s per-module shards), and appends any new `(runId, jobName)`
   records to `tests/ci-timeout-budget-history.jsonl`. Unlike the in-job check,

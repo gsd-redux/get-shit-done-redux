@@ -253,6 +253,7 @@ test('near-cap check CI_JOB_TIMEOUT_MINUTES literals match each job\'s own timeo
   const staticLanes = [
     { workflowFile: 'test.yml', jobKey: 'test', envLiteral: '32' },
     { workflowFile: 'test.yml', jobKey: 'test-full', envLiteral: '45' },
+    { workflowFile: 'test.yml', jobKey: 'test-conformance', envLiteral: '45' },
     { workflowFile: 'install-smoke.yml', jobKey: 'smoke', envLiteral: '12' },
   ];
 
@@ -294,5 +295,10 @@ test('near-cap check CI_JOB_TIMEOUT_MINUTES literals match each job\'s own timeo
     assert.equal(testWorkflow.jobs['coverage-gate'].name, 'Coverage gate (merged shards)',
       'test.yml jobs.coverage-gate.name changed — update JOB_RULES to match');
     assert.equal(coverageGateRule.test('Coverage gate (merged shards)'), true);
+
+    const testConformanceRule = JOB_RULES.find((r) => r.workflowFile === 'test.yml' && r.jobKey === 'test-conformance');
+    assert.ok(testWorkflow.jobs['test-conformance'].name.startsWith('conformance test ('),
+      'test.yml jobs.test-conformance.name no longer starts with "conformance test (" — update JOB_RULES to match');
+    assert.equal(testConformanceRule.test('conformance test (windows-latest, 24, shard 1/3)'), true);
   });
 });
