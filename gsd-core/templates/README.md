@@ -27,7 +27,7 @@ These files live directly at `.planning/` — not inside phase subdirectories.
 | `STATE-ARCHIVE.md` | *(none)* | `state.cts`'s `cmdStatePrune` | Pruned historical STATE.md entries |
 | `milestone.lock` | *(none)* | `src/milestone-lock.cts` | Persistent milestone (phase + session) claim, unlike the transient `STATE.md.lock`/`WAITING.json` (#3311) |
 | `state.json` | *(none)* | `src/state-contract.cts` | Machine-readable state contract published at step boundaries (#3227) |
-| `skill-manifest.json` | *(none)* | `init.cts`'s `routeSkillManifest --write` | Project-scoped skill manifest (#3964) |
+| `skill-manifest.json` | *(none)* | `init.cts`'s `cmdSkillManifest --write` | Project-scoped skill manifest (#3964) |
 | `PATTERNS.md` | *(inline)* | `/gsd:extract-learnings` (graduation, `workflows/graduation.md`, `patterns` target) | Graduated cross-phase patterns -- distinct from the per-phase `NN-PATTERNS.md` below (#4282) |
 
 ### Version-stamped artifacts (pattern: `vX.Y-*.md`)
