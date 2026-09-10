@@ -452,9 +452,9 @@ const CHECK_MAX_BUFFER = 16 * 1024 * 1024;
 
 /** Windows `taskkill` resolved by ABSOLUTE path — never a bare PATH-resolved name. A project
  * directory used as the child's `cwd` could otherwise contain a planted `taskkill.exe`/`.bat`
- * that Windows executable resolution picks up ahead of the real one (#3660 review, minor-9). */
-/** Returns null (never a hardcoded fallback, per tests/hardcoded-paths.test.cjs) when neither env
- * var is set -- this is not expected on a real Windows host, both are set by the OS itself, but a
+ * that Windows executable resolution picks up ahead of the real one (#3660 review, minor-9).
+ * Returns null (never a hardcoded fallback, per tests/hardcoded-paths.test.cjs) when neither env
+ * var is set -- not expected on a real Windows host (both are set by the OS itself), but a
  * hostile/stripped env should degrade to "skip the reap" rather than guess a system path. */
 function taskkillPath(): string | null {
   const root = process.env.SystemRoot || process.env.windir;

@@ -925,9 +925,10 @@ describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
       { cwd: dir },
     );
     // Same return-shape assertions as the pre-existing EMPTY-file fail-closed test above — the
-    // reap-gating change (gated strictly on `err.signal`, i.e. a timeout-kill) must not alter the
-    // ordinary non-zero-exit path's observable result. No wall-clock assertion (clock-seam rule):
-    // the absence of a hang is proven by this synchronous call returning at all, not by timing it.
+    // reap-gating change (gated strictly on `err.code === 'ETIMEDOUT'`, i.e. a timeout-kill) must
+    // not alter the ordinary non-zero-exit path's observable result. No wall-clock assertion
+    // (clock-seam rule): the absence of a hang is proven by this synchronous call returning at
+    // all, not by timing it.
     assert.notEqual(result.status, 'green', 'an ordinary failing node-test must fail closed exactly as before this fix');
     assert.equal(result.located, true, 'the check was located; it just did not pass');
     assert.equal(result.evidence.length, 0);
