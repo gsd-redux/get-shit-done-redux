@@ -500,6 +500,7 @@ describe('prohibition-enforcement real-runner helpers (#1259)', () => {
 describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
   const fs = require('node:fs');
   const { spawn } = require('node:child_process');
+  const { setTimeout: sleep } = require('node:timers/promises');
 
   // The hang fixture served to the bounded-timeout test below, hoisted so the #4104 self-exit
   // regression cannot drift from the body it guards. Parks on a SETTLING 10s timer: still "hung"
@@ -774,6 +775,140 @@ describe('prohibition-enforcement REAL runner end-to-end (#1259)', () => {
     );
     assert.notEqual(result.status, 'green', 'an empty (zero-test) file must NEVER green — fail-closed');
     assert.equal(result.located, true, 'the check was located; it just did not genuinely pass');
+    assert.equal(result.evidence.length, 0);
+  });
+
+  // ─── #3660 regression: a HANGING node-test's per-file WORKER must not be orphaned ──────────────
+  // `node --test` forks a per-file worker subprocess by default (Node 22+, `--test-isolation=process`);
+  // `execFileSync`'s `timeout` only signals the direct child (the runner), never the worker. These
+  // exercise the REAL, uninjected `defaultRunCheck` -> `execFileSyncReaping` path (no `runCheck`
+  // injected) and observe a real OS-level pid, so the fix (`reapDescendants`) is proven, not a mock.
+
+  /** Poll for the fixture's pidfile with bounded retry-with-backoff (no fixed sleep) — the pidfile
+   * write happens inside the spawned worker, which may take a beat to start. */
+  async function readPidWithRetry(pidfilePath, { attempts = 30, delayMs = 150 } = {}) {
+    for (let i = 0; i < attempts; i += 1) {
+      if (fs.existsSync(pidfilePath)) {
+        const txt = fs.readFileSync(pidfilePath, 'utf-8').trim();
+        if (txt) return Number(txt);
+      }
+      await sleep(delayMs);
+    }
+    throw new Error(`pidfile ${pidfilePath} was never written within the retry budget`);
+  }
+
+  /** Liveness probe via `process.kill(pid, 0)` (throws ESRCH when dead) — no process-list scan. */
+  function isAlive(pid) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Bounded retry-with-backoff until `isAlive(pid)` reports false, or the budget is exhausted. */
+  async function waitUntilDead(pid, { attempts = 30, delayMs = 100 } = {}) {
+    let alive = isAlive(pid);
+    for (let i = 0; i < attempts && alive; i += 1) {
+      await sleep(delayMs);
+      alive = isAlive(pid);
+    }
+    return alive;
+  }
+
+  test('a HANGING node-test leaves no orphaned descendant behind (#3660: worker survives runner-only kill)', async (t) => {
+    const enforce = require(ENFORCEMENT_LIB);
+    const dir = createTempDir('prohib-orphan-hang-');
+    t.after(() => cleanup(dir));
+    const pidfilePath = path.join(dir, 'worker.pid');
+    const tf = path.join(dir, 'hang-pid.test.cjs');
+    // Blocks via Atomics.wait (NOT a busy `while(true)`) so this test does not peg a CPU core; the
+    // deadline (10s) is far longer than the check's own timeoutMs (1200ms) below. The worker writes
+    // its OWN pid before blocking, matching the maintainer-blessed fixture design (no pgrep/procps).
+    fs.writeFileSync(tf,
+      "const { test } = require('node:test');\n" +
+      "const fs = require('node:fs');\n" +
+      "test('blocks forever (#3660 regression fixture)', () => {\n" +
+      "  fs.writeFileSync(process.env.GSD_TEST_PIDFILE, String(process.pid));\n" +
+      "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10_000);\n" +
+      "});\n");
+    const prevPidfileEnv = process.env.GSD_TEST_PIDFILE;
+    process.env.GSD_TEST_PIDFILE = pidfilePath;
+    t.after(() => {
+      if (prevPidfileEnv === undefined) delete process.env.GSD_TEST_PIDFILE;
+      else process.env.GSD_TEST_PIDFILE = prevPidfileEnv;
+    });
+    // Real, UNINJECTED path: no runCheck/proveFailFirst override -> defaultRunCheck ->
+    // execFileSyncReaping runs the fixture for real. The short timeoutMs keeps this test fast.
+    const result = enforce.runProhibitionEnforcement(
+      TEST_TIER,
+      { kind: 'node-test', target: tf, failFirst: true },
+      { cwd: dir, timeoutMs: 1200 },
+    );
+    assert.notEqual(result.status, 'green', 'a hung check must fail closed (unchanged pre-existing contract)');
+    const workerPid = await readPidWithRetry(pidfilePath);
+    assert.ok(Number.isInteger(workerPid) && workerPid > 0, 'worker pid must be a real positive pid');
+    const stillAlive = await waitUntilDead(workerPid);
+    assert.equal(stillAlive, false,
+      `the node --test worker (pid ${workerPid}) must be reaped, not orphaned (#3660)`);
+  });
+
+  test('control: a CLEAN node-test subject\'s worker exits on its own (no reap needed; proves the liveness probe is meaningful)', async (t) => {
+    const enforce = require(ENFORCEMENT_LIB);
+    const dir = createTempDir('prohib-orphan-control-');
+    t.after(() => cleanup(dir));
+    const pidfilePath = path.join(dir, 'worker.pid');
+    const tf = path.join(dir, 'clean-pid.test.cjs');
+    // Same fixture SHAPE (writes its own pid) but does NOT block — it exits on its own. This proves
+    // the isAlive/waitUntilDead probe can observe a live-then-dead transition at all, so the hang
+    // test's "not alive" assertion above is meaningful, not vacuously true.
+    fs.writeFileSync(tf,
+      "const { test } = require('node:test');\n" +
+      "const fs = require('node:fs');\n" +
+      "test('exits immediately, no hang', () => {\n" +
+      "  fs.writeFileSync(process.env.GSD_TEST_PIDFILE, String(process.pid));\n" +
+      "});\n");
+    const prevPidfileEnv = process.env.GSD_TEST_PIDFILE;
+    process.env.GSD_TEST_PIDFILE = pidfilePath;
+    t.after(() => {
+      if (prevPidfileEnv === undefined) delete process.env.GSD_TEST_PIDFILE;
+      else process.env.GSD_TEST_PIDFILE = prevPidfileEnv;
+    });
+    enforce.runProhibitionEnforcement(
+      TEST_TIER,
+      { kind: 'node-test', target: tf, failFirst: true },
+      { cwd: dir },
+    );
+    const workerPid = await readPidWithRetry(pidfilePath);
+    assert.ok(Number.isInteger(workerPid) && workerPid > 0, 'worker pid must be a real positive pid');
+    const stillAlive = await waitUntilDead(workerPid);
+    assert.equal(stillAlive, false,
+      `control: the clean-exit worker (pid ${workerPid}) must be observably dead shortly after — proves the probe works`);
+  });
+
+  test('an ORDINARY FAILING node-test (no hang) fails closed exactly as before (#3660 non-regression: reap-gating does not alter the normal-failure path)', (t) => {
+    const enforce = require(ENFORCEMENT_LIB);
+    const dir = createTempDir('prohib-fail-ordinary-');
+    t.after(() => cleanup(dir));
+    const tf = path.join(dir, 'fails.test.cjs');
+    fs.writeFileSync(tf,
+      "const { test } = require('node:test');\n" +
+      "const assert = require('node:assert');\n" +
+      "test('fails immediately, no hang', () => {\n" +
+      "  assert.fail('deliberate ordinary failure (#3660 non-regression control)');\n" +
+      "});\n");
+    const result = enforce.runProhibitionEnforcement(
+      TEST_TIER,
+      { kind: 'node-test', target: tf, failFirst: true },
+      { cwd: dir },
+    );
+    // Same return-shape assertions as the pre-existing EMPTY-file fail-closed test above — the
+    // reap-gating change (gated strictly on `err.signal`, i.e. a timeout-kill) must not alter the
+    // ordinary non-zero-exit path's observable result. No wall-clock assertion (clock-seam rule):
+    // the absence of a hang is proven by this synchronous call returning at all, not by timing it.
+    assert.notEqual(result.status, 'green', 'an ordinary failing node-test must fail closed exactly as before this fix');
+    assert.equal(result.located, true, 'the check was located; it just did not pass');
     assert.equal(result.evidence.length, 0);
   });
 
