@@ -14,6 +14,25 @@
  * is the safe direction — a false positive costs one extra test running on a
  * real OS; a false negative silently drops real-OS coverage).
  *
+ * KNOWN LIMIT, disclosed deliberately: this is a STATIC content classifier,
+ * not a real per-file, per-OS behavioral diff. Epic #4589's issue #4591 asked
+ * for the cutover to be validated by "running the existing full matrix one
+ * more time as a parity baseline, diffing pass/fail per file between the
+ * real-OS runs and the Linux run" before moving any file into the Linux-only
+ * bulk. That literal per-file diff was NOT performed — no historical
+ * per-file, per-OS pass/fail dataset exists to diff against (GitHub Actions
+ * publishes coverage/QA artifacts from CI runs, not per-file JUnit results).
+ * What stands in for it: (1) the most recent push-triggered run on `next`
+ * (unconditionally full-matrix) is green on every OS for every file in this
+ * classification, confirmed before this classifier was built; (2) the
+ * existing `test-full` job keeps running the WHOLE suite on real Windows/
+ * macOS as a non-gating safety net for one release cycle (.github/workflows/
+ * test.yml) — a classifier miss surfaces as a visible warning there, not a
+ * silent gap, before the safety net is retired. This is the same
+ * static-analysis-substitutes-for-real-OS-execution stance ADR-1703's whole
+ * rule catalog already takes; it is a real, disclosed limit, not a silent
+ * substitution.
+ *
  * Usage:
  *   node scripts/gen-platform-conformance-tier.cjs                      # print summary to stdout
  *   node scripts/gen-platform-conformance-tier.cjs --write              # write the generated file
