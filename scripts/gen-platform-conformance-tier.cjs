@@ -58,8 +58,18 @@
  *   node scripts/gen-platform-conformance-tier.cjs                      # print summary to stdout
  *   node scripts/gen-platform-conformance-tier.cjs --write              # write the generated file
  *   node scripts/gen-platform-conformance-tier.cjs --check              # exit 1 if the committed file is stale
+ *   node scripts/gen-platform-conformance-tier.cjs --target macos ...   # same three modes, macOS-specific list (#4593)
  *   node scripts/gen-platform-conformance-tier.cjs --tests-dir <path>   # override the tests/ root (tests only)
  *   node scripts/gen-platform-conformance-tier.cjs --out <path>         # override the generated-file path (tests only)
+ *
+ * `--target` selects which of the two independent generated outputs this
+ * invocation targets: `windows` (default, the original #4591 behavior —
+ * omitting the flag is unchanged) or `macos` (#4593's narrower, macOS-
+ * specific list). Both write into the SAME committed-file conventions
+ * (`scripts/lib/platform-conformance-tier.generated.cjs` /
+ * `scripts/lib/macos-conformance-tier.generated.cjs`), so `package.json`'s
+ * `lint:generated-sync`/`regen:derived` chains invoke this script twice, once
+ * per target, rather than needing a second script file.
  *
  * `--tests-dir`/`--out` (or the TESTS_DIR/OUT_PATH env vars, flag takes
  * precedence) exist solely so tests/platform-conformance-tier.test.cjs can
@@ -77,9 +87,16 @@ const { suiteOf } = require('./lib/suite-detection.cjs');
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_TESTS_DIR = path.join(ROOT, 'tests');
 const DEFAULT_OUT_PATH = path.join(ROOT, 'scripts', 'lib', 'platform-conformance-tier.generated.cjs');
+const DEFAULT_MACOS_OUT_PATH = path.join(ROOT, 'scripts', 'lib', 'macos-conformance-tier.generated.cjs');
 
 const GENERATED_HEADER =
   '// GENERATED FILE — do not hand-edit. Run `node scripts/gen-platform-conformance-tier.cjs --write` to regenerate.\n';
+
+const MACOS_GENERATED_HEADER =
+  '// GENERATED FILE — do not hand-edit. Run `node scripts/gen-platform-conformance-tier.cjs --target macos --write` to regenerate.\n' +
+  '// macOS-specific conformance tier (#4593), separate from and narrower than the general/\n' +
+  '// Windows-oriented tier in platform-conformance-tier.generated.cjs — see\n' +
+  '// docs/adr/4593-macos-conformance-tier-architecture.md for the full rationale.\n';
 
 /**
  * Detection categories (#4591 design doc). Each entry's `test` receives the
@@ -159,6 +176,31 @@ const CATEGORIES = [
 const NOISY_FOR_SOURCE_REACHABILITY = new Set(['hardcoded-path-vs-path-call', 'symlink-keyword']);
 
 /**
+ * macOS-specific detection categories (#4593, design doc
+ * .gsd/phase/chore-4593-macos-conformance-tier/40-design.md). Built new,
+ * rather than reusing CATEGORIES above minus its Windows-specific entries,
+ * because that naive exclusion barely narrows anything (measured: 546 -> 424
+ * files, 78%) — most files match multiple general-tier signals simultaneously
+ * and only need ONE surviving signal to stay in. `chmod-mode-bit` and
+ * `symlink-keyword` ARE deliberately duplicated verbatim from CATEGORIES:
+ * both are genuinely Unix-relevant (chmod bits and symlink semantics differ
+ * materially on macOS), not Windows-motivated the way the rest of CATEGORIES
+ * is. A standalone CRLF/`autocrlf` signal was considered and rejected: even
+ * narrowed to `/\bCRLF\b|autocrlf/i` it still hit 143/930 files (15%) — CRLF
+ * is primarily a Windows checkout concern in this codebase (ADR-1703's
+ * `no-crlf-fragile-split` files it under DEFECT.WINDOWS-TEST-PORTABILITY),
+ * so a CRLF signal pulls in Windows-relevant files already covered by the
+ * general tier, not a macOS-narrowing one.
+ */
+const MACOS_CATEGORIES = [
+  { name: 'darwin-literal', test: (content) => /\bdarwin\b/.test(content) },
+  { name: 'zsh-dispatch', test: (content) => /\bzsh\b/i.test(content) },
+  { name: 'case-sensitivity', test: (content) => /case.?insensitiv|case.?sensitiv/i.test(content) },
+  { name: 'chmod-mode-bit', test: (content) => /chmodSync|chmod\(/.test(content) || /0o[0-7]{3,4}\b/.test(content) },
+  { name: 'symlink-keyword', test: (content) => /\bsymlink/i.test(content) },
+];
+
+/**
  * Pure classifier: given a test file's raw string content, returns which
  * platform-conformance categories matched and whether the file needs real-OS
  * coverage (true iff at least one category matched).
@@ -170,6 +212,22 @@ function classifyContent(content) {
   const text = typeof content === 'string' ? content : '';
   const signals = [];
   for (const category of CATEGORIES) {
+    if (category.test(text)) signals.push(category.name);
+  }
+  return { needsRealOs: signals.length > 0, signals };
+}
+
+/**
+ * Pure classifier, macOS-specific signal set (#4593). Same shape as
+ * classifyContent, against MACOS_CATEGORIES instead of CATEGORIES.
+ *
+ * @param {string} content
+ * @returns {{needsRealOs: boolean, signals: string[]}}
+ */
+function classifyMacosContent(content) {
+  const text = typeof content === 'string' ? content : '';
+  const signals = [];
+  for (const category of MACOS_CATEGORIES) {
     if (category.test(text)) signals.push(category.name);
   }
   return { needsRealOs: signals.length > 0, signals };
@@ -228,6 +286,29 @@ function classifyTree(testsDir) {
 }
 
 /**
+ * Same walk/eligibility as classifyTree, classified with the macOS-specific
+ * signal set (#4593).
+ *
+ * @param {string} testsDir
+ * @returns {{ total: number, files: string[] }}
+ */
+function classifyMacosTree(testsDir) {
+  const absoluteFiles = walkTestFiles(testsDir);
+  const unitFiles = absoluteFiles.filter((absPath) => suiteOf(absPath) === null);
+  const flagged = [];
+  for (const absPath of unitFiles) {
+    const content = fs.readFileSync(absPath, 'utf8');
+    const { needsRealOs } = classifyMacosContent(content);
+    if (needsRealOs) {
+      const rel = path.relative(testsDir, absPath).replace(/\\/g, '/');
+      flagged.push('tests/' + rel);
+    }
+  }
+  flagged.sort();
+  return { total: absoluteFiles.length, files: flagged };
+}
+
+/**
  * Render the generated `.cjs` module body — one array entry per line for a
  * readable diff, matching scripts/lib/portability-vocab.cjs's array-literal
  * style.
@@ -248,10 +329,43 @@ function renderGeneratedFile(files) {
   );
 }
 
-/** Resolve the effective tests-dir / out-path from argv/env, flag beats env. */
+/**
+ * Render scripts/lib/macos-conformance-tier.generated.cjs's module body,
+ * mirroring renderGeneratedFile exactly against the macOS export name.
+ *
+ * @param {string[]} files - already sorted.
+ * @returns {string}
+ */
+function renderMacosGeneratedFile(files) {
+  const lines = files.map((f) => `  ${JSON.stringify(f)},`).join('\n');
+  return (
+    MACOS_GENERATED_HEADER +
+    "'use strict';\n\n" +
+    'module.exports = {\n' +
+    '  MACOS_CONFORMANCE_TIER_FILES: [\n' +
+    (lines.length > 0 ? lines + '\n' : '') +
+    '  ],\n' +
+    '};\n'
+  );
+}
+
+/** Resolve the effective target/tests-dir/out-path from argv/env, flag beats env. */
 function resolveOverrides(argv) {
+  let target = 'windows';
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--target') {
+      const value = argv[i + 1];
+      if (value !== 'windows' && value !== 'macos') {
+        throw new ExitError(1, 'gen-platform-conformance-tier: --target requires "windows" or "macos"');
+      }
+      target = value;
+      i++;
+    }
+  }
+
+  const defaultOutPath = target === 'macos' ? DEFAULT_MACOS_OUT_PATH : DEFAULT_OUT_PATH;
   let testsDir = process.env.TESTS_DIR || DEFAULT_TESTS_DIR;
-  let outPath = process.env.OUT_PATH || DEFAULT_OUT_PATH;
+  let outPath = process.env.OUT_PATH || defaultOutPath;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--tests-dir') {
@@ -271,19 +385,22 @@ function resolveOverrides(argv) {
     }
   }
 
-  return { testsDir: path.resolve(testsDir), outPath: path.resolve(outPath) };
+  return { target, testsDir: path.resolve(testsDir), outPath: path.resolve(outPath) };
 }
 
 function main() {
   const argv = process.argv.slice(2);
-  const { testsDir, outPath } = resolveOverrides(argv);
+  const { target, testsDir, outPath } = resolveOverrides(argv);
   const mode = argv.includes('--check') ? 'check' : argv.includes('--write') ? 'write' : 'print';
 
-  const { total, files } = classifyTree(testsDir);
+  const isMacos = target === 'macos';
+  const label = isMacos ? 'gen-platform-conformance-tier --target macos' : 'gen-platform-conformance-tier';
+  const exportKey = isMacos ? 'MACOS_CONFORMANCE_TIER_FILES' : 'CONFORMANCE_TIER_FILES';
+  const { total, files } = isMacos ? classifyMacosTree(testsDir) : classifyTree(testsDir);
 
   if (mode === 'write') {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    fs.writeFileSync(outPath, renderGeneratedFile(files));
+    fs.writeFileSync(outPath, isMacos ? renderMacosGeneratedFile(files) : renderGeneratedFile(files));
     process.stdout.write(`Wrote ${outPath} (${files.length} conformance-tier file(s))\n`);
     return;
   }
@@ -299,14 +416,12 @@ function main() {
     } catch (err) {
       throw new ExitError(
         1,
-        `gen-platform-conformance-tier: could not load ${outPath} — run ` +
-          '`node scripts/gen-platform-conformance-tier.cjs --write` first ' +
+        `${label}: could not load ${outPath} — run ` +
+          `\`node scripts/gen-platform-conformance-tier.cjs${isMacos ? ' --target macos' : ''} --write\` first ` +
           `(${err && err.message ? err.message : err})`,
       );
     }
-    const committedFiles = Array.isArray(committed.CONFORMANCE_TIER_FILES)
-      ? committed.CONFORMANCE_TIER_FILES
-      : [];
+    const committedFiles = Array.isArray(committed[exportKey]) ? committed[exportKey] : [];
     const committedSet = new Set(committedFiles);
     const liveSet = new Set(files);
 
@@ -316,22 +431,20 @@ function main() {
     if (added.length > 0 || removed.length > 0) {
       process.stderr.write(
         `${path.relative(ROOT, outPath).replace(/\\/g, '/')} is stale. Run:\n` +
-          '  node scripts/gen-platform-conformance-tier.cjs --write\n\n',
+          `  node scripts/gen-platform-conformance-tier.cjs${isMacos ? ' --target macos' : ''} --write\n\n`,
       );
       for (const f of added) process.stderr.write('  + ' + f + '\n');
       for (const f of removed) process.stderr.write('  - ' + f + '\n');
       throw new ExitError(1);
     }
 
-    process.stdout.write(
-      `ok gen-platform-conformance-tier: ${files.length} conformance-tier files, list matches\n`,
-    );
+    process.stdout.write(`ok ${label}: ${files.length} conformance-tier files, list matches\n`);
     return;
   }
 
   // No flag: print a classification summary, write nothing.
   process.stdout.write(
-    `gen-platform-conformance-tier: ${total} file(s) scanned, ` +
+    `${label}: ${total} file(s) scanned, ` +
       `${files.length} need real OS, ${total - files.length} excluded (Linux-only conformance tier eligible)\n`,
   );
 }
@@ -341,4 +454,15 @@ if (require.main === module) {
   runMain(main);
 }
 
-module.exports = { classifyContent, CATEGORIES, NOISY_FOR_SOURCE_REACHABILITY, walkTestFiles, classifyTree, renderGeneratedFile };
+module.exports = {
+  classifyContent,
+  CATEGORIES,
+  NOISY_FOR_SOURCE_REACHABILITY,
+  walkTestFiles,
+  classifyTree,
+  renderGeneratedFile,
+  classifyMacosContent,
+  MACOS_CATEGORIES,
+  classifyMacosTree,
+  renderMacosGeneratedFile,
+};

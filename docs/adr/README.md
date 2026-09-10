@@ -268,6 +268,7 @@ These govern the system as it stands. Cite these.
 | [ADR-3660](3660-runtime-artifact-layout-module.md) | Runtime Artifact Layout Module owns per-runtime artifact placement | Accepted | [ADR-1239](1239-gsd-embeddable-orchestration-engine.md) |
 | [ADR-3806](3806-review-dispositions-ledger.md) | Review Dispositions Ledger canonizes where and how reviews-mode records incorporate/defer decisions in PLAN.md | Accepted | — |
 | [ADR-4139](4139-compact-content-seam.md) | The compact-content seam — shrink the eager window, never the guarantee | Accepted | — |
+| [ADR-4593](4593-macos-conformance-tier-architecture.md) | A macOS-specific conformance-tier classifier, separate from the Windows-oriented one | Accepted | — |
 
 ### Proposed
 

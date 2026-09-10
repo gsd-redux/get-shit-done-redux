@@ -703,9 +703,19 @@ jobs:
       # scripts can `require()` it directly) — run-tests.cjs --files-from
       # expects a plain newline-delimited text file, so this step bridges
       # the two, one path per line, matching the existing scoped-lane
-      # convention (.ci-selected-tests.txt).
-      - name: Prepare conformance-tier test list
+      # convention (.ci-selected-tests.txt). Windows keeps the general,
+      # Windows-inclusive list.
+      - name: Prepare conformance-tier test list (windows)
+        if: matrix.os == 'windows-latest'
         run: node -e "require('./scripts/lib/platform-conformance-tier.generated.cjs').CONFORMANCE_TIER_FILES.forEach(f => console.log(f))" > .ci-conformance-tests.txt
+
+      # #4593: macOS reads a narrower, macOS-specific file list instead of the
+      # shared/Windows-oriented one above — see
+      # docs/adr/4593-macos-conformance-tier-architecture.md. Writes into the
+      # same conventional filename so the run step below is unchanged.
+      - name: Prepare conformance-tier test list (macos)
+        if: matrix.os == 'macos-latest'
+        run: node -e "require('./scripts/lib/macos-conformance-tier.generated.cjs').MACOS_CONFORMANCE_TIER_FILES.forEach(f => console.log(f))" > .ci-conformance-tests.txt
 
       - name: Run platform-conformance-tier tests
         run: node scripts/run-tests.cjs --files-from .ci-conformance-tests.txt${{ matrix.shard && format(' --shard {0}', matrix.shard) || '' }}

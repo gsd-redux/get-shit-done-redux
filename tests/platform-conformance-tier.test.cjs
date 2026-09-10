@@ -22,11 +22,18 @@ const path = require('node:path');
 
 const { createTempDir, cleanup } = require('./helpers.cjs');
 const { runNode } = require('./helpers/process-seam.cjs');
-const { classifyContent, classifyTree, NOISY_FOR_SOURCE_REACHABILITY } = require('../scripts/gen-platform-conformance-tier.cjs');
+const {
+  classifyContent,
+  classifyTree,
+  NOISY_FOR_SOURCE_REACHABILITY,
+  classifyMacosContent,
+  classifyMacosTree,
+} = require('../scripts/gen-platform-conformance-tier.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'gen-platform-conformance-tier.cjs');
 const GENERATED_PATH = path.join(ROOT, 'scripts', 'lib', 'platform-conformance-tier.generated.cjs');
+const MACOS_GENERATED_PATH = path.join(ROOT, 'scripts', 'lib', 'macos-conformance-tier.generated.cjs');
 
 // ─── Rows 1-15: classifyContent, pure fixtures ────────────────────────────────
 
@@ -316,6 +323,191 @@ describe('gen-platform-conformance-tier.cjs — real repo tree (regression)', ()
       'suite-tagged files (install/security/slow/integration/qa) must never appear in the ' +
         'conformance-tier list — install/slow are PR-excluded suites and integration/security ' +
         'already run via their own dedicated steps',
+    );
+  });
+});
+
+// ─── #4593: macOS-specific classifier (classifyMacosContent / MACOS_CATEGORIES)
+
+describe('classifyMacosContent — happy-path signals', () => {
+  test('flags darwin literal', () => {
+    const { needsRealOs, signals } = classifyMacosContent("const platforms = ['darwin', 'linux'];");
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('darwin-literal'));
+  });
+
+  test('flags zsh dispatch', () => {
+    const { needsRealOs, signals } = classifyMacosContent("shell: 'zsh {0}'");
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('zsh-dispatch'));
+  });
+
+  test('flags case-sensitivity phrasing', () => {
+    for (const fixture of [
+      '// verify the case-insensitive lookup',
+      '// verify the case-sensitive lookup',
+      '// verify case insensitivity',
+    ]) {
+      const { needsRealOs, signals } = classifyMacosContent(fixture);
+      assert.equal(needsRealOs, true, fixture);
+      assert.ok(signals.includes('case-sensitivity'), fixture);
+    }
+  });
+
+  test('flags chmod mode-bit octal', () => {
+    const { needsRealOs, signals } = classifyMacosContent('fs.chmodSync(target, 0o755);');
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('chmod-mode-bit'));
+  });
+
+  test('flags symlink keyword', () => {
+    const { needsRealOs, signals } = classifyMacosContent('fs.symlinkSync(target, link);');
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('symlink-keyword'));
+  });
+});
+
+describe('classifyMacosContent — negative case', () => {
+  test('does not flag a clean file with none of the 5 macOS signals', () => {
+    const fixture =
+      "const assert = require('node:assert/strict');\n" +
+      "if (process.platform === 'win32') { doThing(); }\n" +
+      "test('adds numbers', () => { assert.equal(1 + 1, 2); });";
+    const { needsRealOs, signals } = classifyMacosContent(fixture);
+    assert.equal(needsRealOs, false);
+    assert.deepEqual(signals, []);
+  });
+
+  test('does not crash on empty content', () => {
+    assert.doesNotThrow(() => classifyMacosContent(''));
+    const { needsRealOs, signals } = classifyMacosContent('');
+    assert.equal(needsRealOs, false);
+    assert.deepEqual(signals, []);
+  });
+});
+
+// ─── #4593: CLI --target macos ─────────────────────────────────────────────
+
+describe('gen-platform-conformance-tier.cjs CLI --target macos (temp fixture tree)', () => {
+  test('--target macos --check passes when the generated file is fresh', () => {
+    const tmpDir = createTempDir('gen-platform-conformance-tier-macos-');
+    try {
+      const testsDir = path.join(tmpDir, 'tests');
+      fs.mkdirSync(testsDir, { recursive: true });
+      fs.writeFileSync(path.join(testsDir, 'flagged.test.cjs'), 'fs.symlinkSync(target, link);\n');
+      fs.writeFileSync(path.join(testsDir, 'clean.test.cjs'), "assert.equal(1 + 1, 2);\n");
+      const outPath = path.join(tmpDir, 'macos-conformance-tier.generated.cjs');
+
+      const write = runGen(['--target', 'macos', '--write', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(write.exitCode, 0, write.stderr);
+      assert.ok(fs.existsSync(outPath));
+
+      delete require.cache[require.resolve(outPath)];
+      const generated = require(outPath);
+      assert.deepEqual(generated.MACOS_CONFORMANCE_TIER_FILES, ['tests/flagged.test.cjs']);
+
+      const check = runGen(['--target', 'macos', '--check', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(check.exitCode, 0, check.stderr);
+      assert.match(check.stdout, /ok gen-platform-conformance-tier --target macos/);
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('--target macos --check fails and names the drift when the list is stale', () => {
+    const tmpDir = createTempDir('gen-platform-conformance-tier-macos-');
+    try {
+      const testsDir = path.join(tmpDir, 'tests');
+      fs.mkdirSync(testsDir, { recursive: true });
+      fs.writeFileSync(path.join(testsDir, 'flagged.test.cjs'), 'fs.symlinkSync(target, link);\n');
+      const outPath = path.join(tmpDir, 'macos-conformance-tier.generated.cjs');
+
+      const write = runGen(['--target', 'macos', '--write', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(write.exitCode, 0, write.stderr);
+
+      fs.writeFileSync(path.join(testsDir, 'new-signal.test.cjs'), "const platforms = ['darwin'];\n");
+
+      const check = runGen(['--target', 'macos', '--check', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(check.exitCode, 1);
+      const combined = check.stdout + check.stderr;
+      assert.match(combined, /tests\/new-signal\.test\.cjs/, 'the drift report must name the new file');
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+
+  test('a suite-suffixed file is excluded even with a qualifying macOS content signal', () => {
+    const tmpDir = createTempDir('gen-platform-conformance-tier-macos-suite-');
+    try {
+      const testsDir = path.join(tmpDir, 'tests');
+      fs.mkdirSync(testsDir, { recursive: true });
+      const signal = 'fs.symlinkSync(target, link);\n';
+      fs.writeFileSync(path.join(testsDir, 'foo.test.cjs'), signal);
+      fs.writeFileSync(path.join(testsDir, 'foo.install.test.cjs'), signal);
+      const outPath = path.join(tmpDir, 'macos-conformance-tier.generated.cjs');
+
+      const write = runGen(['--target', 'macos', '--write', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(write.exitCode, 0, write.stderr);
+
+      delete require.cache[require.resolve(outPath)];
+      const generated = require(outPath);
+
+      assert.deepEqual(
+        generated.MACOS_CONFORMANCE_TIER_FILES,
+        ['tests/foo.test.cjs'],
+        'the install-suite file must be excluded even though its content would otherwise qualify',
+      );
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+});
+
+// ─── #4593: real tests/ tree, regression against the committed macOS artifact
+
+describe('gen-platform-conformance-tier.cjs — real repo tree, macOS target (regression)', () => {
+  test('real tests/ tree macOS classification matches the committed list', () => {
+    const realTestsDir = path.join(ROOT, 'tests');
+
+    let fresh;
+    assert.doesNotThrow(() => {
+      fresh = classifyMacosTree(realTestsDir);
+    }, 'a full sweep of the real tests/ tree must complete without throwing');
+
+    // Measured 196/930 at authoring time (#4593 design doc). Sanity ballpark
+    // with headroom for organic test-suite growth, not a brittle exact match.
+    assert.ok(
+      fresh.files.length >= 100 && fresh.files.length <= 350,
+      `expected a real, current, sanity-checked count in [100, 350], got ${fresh.files.length}`,
+    );
+
+    delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
+    const committed = require(MACOS_GENERATED_PATH);
+
+    assert.equal(
+      committed.MACOS_CONFORMANCE_TIER_FILES.length,
+      fresh.files.length,
+      'the committed macOS generated file must be fresh — run ' +
+        '`node scripts/gen-platform-conformance-tier.cjs --target macos --write`',
+    );
+    assert.deepEqual(
+      committed.MACOS_CONFORMANCE_TIER_FILES.slice().sort(),
+      fresh.files.slice().sort(),
+      'the committed macOS list must match a fresh sweep exactly, not just in length',
+    );
+  });
+
+  test('the committed macOS conformance-tier list contains zero suite-tagged files', () => {
+    delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
+    const { MACOS_CONFORMANCE_TIER_FILES } = require(MACOS_GENERATED_PATH);
+
+    const suiteTaggedPattern = /\.(install|security|slow|integration|qa)\.test\.cjs$/;
+    const offenders = MACOS_CONFORMANCE_TIER_FILES.filter((f) => suiteTaggedPattern.test(f));
+
+    assert.deepEqual(
+      offenders,
+      [],
+      'suite-tagged files must never appear in the macOS conformance-tier list either',
     );
   });
 });

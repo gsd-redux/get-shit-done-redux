@@ -589,6 +589,7 @@
   "scripts/lib/cli-exit.cjs",
   "scripts/lib/drift-scan.cjs",
   "scripts/lib/exit-code-registry.cjs",
+  "scripts/lib/macos-conformance-tier.generated.cjs",
   "scripts/lib/ndjson-reporter.cjs",
   "scripts/lib/npm-version-check-diagnosis.cjs",
   "scripts/lib/platform-conformance-tier.generated.cjs",
