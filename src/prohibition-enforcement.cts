@@ -499,16 +499,20 @@ function reapDescendants(pid: number | undefined): void {
 
 /**
  * `execFileSync`, with descendant reaping layered on top. Same contract (same return value, throws
- * the identical error) EXCEPT that when — and ONLY when — this call's OWN bound killed the child (a
- * timeout OR a `maxBuffer` overflow — both terminate the child by SIGNAL, so both set `.signal` on
- * the thrown error; an ordinary non-zero exit does not), any descendants the child forked are also
- * reaped.
+ * the identical error) EXCEPT that when — and ONLY when — this call's OWN timeout killed the child,
+ * any descendants the child forked are also reaped.
  *
- * Gating strictly on `signal` (rather than reaping on every throw) matters: an ordinary non-zero exit
- * (a real test/lint failure) has `signal: null` — the child exited on its own, so a reap there would
- * fire on every red run for no reason and, on POSIX, risks signalling a process group whose pgid was
- * *already* recycled by something unrelated in the time since (the #3660 review's Blocker-3 defect in
- * the prior attempt at this fix, PR #3681). Only the timeout-kill path is targeted.
+ * Gated on `error.code === 'ETIMEDOUT'`, NOT `error.signal`. `signal` is the field Node's own docs
+ * describe for this purpose, but it is not reliably populated across platforms/Node versions: on one
+ * real Linux CI run (Node 24) a genuine timeout-kill threw `{ signal: null, code: 'ETIMEDOUT',
+ * status: 7 }` — `signal` was simply absent, `code` was the only reliable marker (confirmed empirically
+ * before landing this; a macOS/Node run separately showed `signal: 'SIGTERM'` for the identical
+ * scenario, so neither field alone is safe to rely on everywhere — `code` was the one constant).
+ * Gating strictly on the timeout code (rather than reaping on every throw) matters: an ordinary
+ * non-zero exit (a real test/lint failure) has no `ETIMEDOUT` code — the child exited on its own, so a
+ * reap there would fire on every red run for no reason and, on POSIX, risks signalling a process group
+ * whose pgid was *already* recycled by something unrelated in the time since (the #3660 review's
+ * Blocker-3 defect in the prior attempt at this fix, PR #3681). Only the timeout-kill path is targeted.
  *
  * Spawns `detached` on POSIX so the reap above can address the whole process group; omitted on
  * Windows (no such flag there — `@types/node`'s `ExecFileSyncOptions` doesn't declare `detached`
@@ -523,24 +527,9 @@ function execFileSyncReaping(
   try {
     return execFileSync(file, args, spawnOptions);
   } catch (e) {
-    const err = e as { pid?: unknown; signal?: unknown; code?: unknown; status?: unknown };
-    process.stderr.write(`[GSD-DEBUG-3660] execFileSyncReaping caught: pid=${err.pid} signal=${err.signal} code=${err.code} status=${err.status} platform=${process.platform}\n`);
-    if (typeof err.pid === 'number' && err.signal) {
-      try {
-        process.kill(-(err.pid as number), 0);
-        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} still has live members before reap attempt\n`);
-      } catch (probeErr) {
-        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} probe before reap: ${(probeErr as { code?: unknown }).code}\n`);
-      }
+    const err = e as { pid?: unknown; code?: unknown };
+    if (typeof err.pid === 'number' && err.code === 'ETIMEDOUT') {
       reapDescendants(err.pid);
-      try {
-        process.kill(-(err.pid as number), 0);
-        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} STILL has live members after reap attempt\n`);
-      } catch (probeErr2) {
-        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} probe after reap: ${(probeErr2 as { code?: unknown }).code}\n`);
-      }
-    } else {
-      process.stderr.write(`[GSD-DEBUG-3660] reap SKIPPED (pid=${typeof err.pid}, signal=${err.signal})\n`);
     }
     throw e;
   }
