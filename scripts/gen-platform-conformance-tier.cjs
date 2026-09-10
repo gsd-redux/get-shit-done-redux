@@ -16,8 +16,8 @@
  * (`scripts/affected-tests-lib.cjs`'s `PR_EXCLUDED_SUITES`; "PRs must never
  * select or run these"), and this generator's output feeds a `pull_request`-
  * triggered job; (2) `integration`/`security` already run via their own
- * separate, dedicated, unsharded, shard-1-only steps in the `test`/
- * `test-full` jobs (.github/workflows/test.yml) — folding any of them into
+ * separate, dedicated, unsharded, shard-1-only steps in the `test` job
+ * (.github/workflows/test.yml) — folding any of them into
  * this job's generic `--files-from` + `--shard` invocation is unproven and,
  * per the incident below, unsafe. (3) `qa` (loop-walk-suite files) already
  * runs via its own separate, dedicated `qa-loop-walk` job
@@ -46,10 +46,10 @@
  * What stands in for it: (1) the most recent push-triggered run on `next`
  * (unconditionally full-matrix) is green on every OS for every file in this
  * classification, confirmed before this classifier was built; (2) the
- * existing `test-full` job keeps running the WHOLE suite on real Windows/
- * macOS as a non-gating safety net for one release cycle (.github/workflows/
- * test.yml) — a classifier miss surfaces as a visible warning there, not a
- * silent gap, before the safety net is retired. This is the same
+ * legacy full-matrix job ran the WHOLE suite on real Windows/macOS as a
+ * non-gating safety net for one release cycle (.github/workflows/test.yml)
+ * before it was retired (#4603) — a classifier miss during that cycle would
+ * have surfaced as a visible warning there, not a silent gap. This is the same
  * static-analysis-substitutes-for-real-OS-execution stance ADR-1703's whole
  * rule catalog already takes; it is a real, disclosed limit, not a silent
  * substitution.
