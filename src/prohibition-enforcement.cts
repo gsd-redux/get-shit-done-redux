@@ -453,9 +453,12 @@ const CHECK_MAX_BUFFER = 16 * 1024 * 1024;
 /** Windows `taskkill` resolved by ABSOLUTE path — never a bare PATH-resolved name. A project
  * directory used as the child's `cwd` could otherwise contain a planted `taskkill.exe`/`.bat`
  * that Windows executable resolution picks up ahead of the real one (#3660 review, minor-9). */
-function taskkillPath(): string {
-  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
-  return path.join(root, 'System32', 'taskkill.exe');
+/** Returns null (never a hardcoded fallback, per tests/hardcoded-paths.test.cjs) when neither env
+ * var is set -- this is not expected on a real Windows host, both are set by the OS itself, but a
+ * hostile/stripped env should degrade to "skip the reap" rather than guess a system path. */
+function taskkillPath(): string | null {
+  const root = process.env.SystemRoot || process.env.windir;
+  return root ? path.join(root, 'System32', 'taskkill.exe') : null;
 }
 
 /**
@@ -477,8 +480,10 @@ function taskkillPath(): string {
 function reapDescendants(pid: number | undefined): void {
   if (typeof pid !== 'number' || pid <= 0) return; // defensive: never signal pid 0 (self) or negative
   if (process.platform === 'win32') {
+    const exe = taskkillPath();
+    if (!exe) return; // no safe absolute path available -- best-effort, skip rather than guess
     try {
-      spawnSync(taskkillPath(), ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      spawnSync(exe, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     } catch {
       // best-effort: a missing taskkill.exe is not this call's problem to escalate
     }
@@ -518,9 +523,24 @@ function execFileSyncReaping(
   try {
     return execFileSync(file, args, spawnOptions);
   } catch (e) {
-    const err = e as { pid?: unknown; signal?: unknown };
+    const err = e as { pid?: unknown; signal?: unknown; code?: unknown; status?: unknown };
+    process.stderr.write(`[GSD-DEBUG-3660] execFileSyncReaping caught: pid=${err.pid} signal=${err.signal} code=${err.code} status=${err.status} platform=${process.platform}\n`);
     if (typeof err.pid === 'number' && err.signal) {
+      try {
+        process.kill(-(err.pid as number), 0);
+        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} still has live members before reap attempt\n`);
+      } catch (probeErr) {
+        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} probe before reap: ${(probeErr as { code?: unknown }).code}\n`);
+      }
       reapDescendants(err.pid);
+      try {
+        process.kill(-(err.pid as number), 0);
+        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} STILL has live members after reap attempt\n`);
+      } catch (probeErr2) {
+        process.stderr.write(`[GSD-DEBUG-3660] group ${err.pid} probe after reap: ${(probeErr2 as { code?: unknown }).code}\n`);
+      }
+    } else {
+      process.stderr.write(`[GSD-DEBUG-3660] reap SKIPPED (pid=${typeof err.pid}, signal=${err.signal})\n`);
     }
     throw e;
   }
