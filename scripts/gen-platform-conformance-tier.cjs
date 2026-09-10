@@ -68,7 +68,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
-const { suiteOf } = require('./run-tests.cjs');
+const { suiteOf } = require('./lib/suite-detection.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_TESTS_DIR = path.join(ROOT, 'tests');

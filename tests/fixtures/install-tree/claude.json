@@ -625,6 +625,7 @@
   "scripts/lib/npm-version-check-diagnosis.cjs",
   "scripts/lib/platform-conformance-tier.generated.cjs",
   "scripts/lib/shellcheck-fetch.cjs",
+  "scripts/lib/suite-detection.cjs",
   "skills/gsd-add-tests/SKILL.md",
   "skills/gsd-ai-integration-phase/SKILL.md",
   "skills/gsd-audit-fix/SKILL.md",

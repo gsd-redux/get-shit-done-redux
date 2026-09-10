@@ -41,6 +41,7 @@ const { tmpdir } = require('os');
 const { pathToFileURL } = require('url');
 const { execFileSync } = require('child_process');
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
+const { suiteOf } = require('./lib/suite-detection.cjs');
 const {
   resolveLiveConfigRoots,
   resolveExtraWatchTargets,
@@ -179,8 +180,6 @@ function ensureBuiltHooks(overrides = {}) {
     runBuild();
   }
 }
-const MARKED_SUITES = ['integration', 'install', 'security', 'slow', 'qa'];
-
 // Recursively collect *.test.cjs files under dir, returning paths relative to dir.
 // Skips node_modules to avoid accidentally picking up decoy files.
 function walkTestFiles(dir, relBase) {
@@ -794,20 +793,8 @@ function parseArgs(argv) {
   return { suite, files, filesFrom, shard };
 }
 
-// Return the marked suite name embedded in a filename, or null if it's unmarked.
-// foo.security.test.cjs -> "security"
-// foo.test.cjs          -> null (unit)
-// Accepts either a bare filename or a relative subdir path; classification is
-// based on the basename only so subdir paths classify identically to root files.
-function suiteOf(filename) {
-  const name = basename(filename);
-  if (!name.endsWith('.test.cjs')) return null;
-  const base = name.slice(0, -'.test.cjs'.length);
-  const lastDot = base.lastIndexOf('.');
-  if (lastDot === -1) return null;
-  const marker = base.slice(lastDot + 1);
-  return MARKED_SUITES.includes(marker) ? marker : null;
-}
+// suiteOf (and its backing MARKED_SUITES) is imported from
+// ./lib/suite-detection.cjs — see that module's header comment for why.
 
 function selectFiles(allFiles, suite) {
   if (suite === null || suite === 'all') {
