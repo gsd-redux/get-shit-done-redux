@@ -80,6 +80,7 @@ Replace all three with a single coherent mechanism: **AST-based ESLint rules in 
 | `no-exact-case-env-access` | `DEFECT.WINDOWS-EXACT-CASE-ENV-ACCESS` | `src/**/*.cts`, `gsd-core/bin/**`, `scripts/**`, `hooks/**` |
 | `require-full-tmpdir-triad` | `DEFECT.WINDOWS-TEST-PORTABILITY` (#4220) | tests |
 | `no-unbounded-dirname-walk` | `DEFECT.WINDOWS-TEST-PORTABILITY` (#4020 / #4220) | tests, scripts |
+| `no-rendered-text-length-assert` | ADR-456 §(c) typed-surface mandate (not a `DEFECT.WINDOWS-*` class — see #4590 amendment below) | tests |
 
 **Amendment (2026-08-18, epic #3411 Phase 3 / #3619).** `no-private-binary-resolution` is the
 first catalog entry added after the original seven, and it extends this architecture to a
@@ -185,6 +186,43 @@ matching both real incident sites.
 A repo-wide sweep for other instances of either pattern (beyond the incident sites above) found
 none: `require-full-tmpdir-triad` and `no-unbounded-dirname-walk` both ran clean against the rest
 of the tree once the three live sites were fixed.
+
+**Amendment (2026-09-09, epic #4589 Phase 1 / #4590).** `no-rendered-text-length-assert` extends
+this catalog's zero-escape-hatch discipline to a bug class outside the `DEFECT.WINDOWS-*`
+taxonomy: a test assertion whose pass/fail depends on the length or substring content of a
+TEMPLATE LITERAL that INTERPOLATES an OS-derived path-returning expression (`os.tmpdir()`,
+`os.homedir()`, or a `PATH_RETURNING_FNS` resolver) alongside other rendered content. Because
+macOS's default tmpdir prefix (`/private/var/folders/…`) is longer than Linux's, such an assertion
+can pass on one runner and fail on another — the root cause behind #4421's incident
+(`git show 4e75b836e9`, `tests/state-todos-render.test.cjs`), which had already been fixed by
+pinning the assertion to a typed field (`json.todos[0].needs`) per ADR-456 §(c) before this rule
+existed to catch a recurrence. The rule catches the same DEFECT CLASS written directly in a test
+file — an inline template literal that itself embeds a path-returning expression and is then
+length/substring-probed — not the literal cross-file production-render-function incident shape
+itself (a call whose return value happens to embed one of its own arguments); detecting the latter
+would require tracing into the callee's own function body, which is out of scope for a
+single-file AST rule. A bare path-returning expression probed directly, with no surrounding
+template literal (e.g. `p.endsWith('.md')`, `resolved.startsWith(root)`, `dir.length > 0`), is
+never flagged: it is a direct, deterministic check on the path value itself, not an assertion
+about other content that happens to share a rendered string with a variable-length path.
+
+Reaching this sound scope took two successive repo-wide sweeps. The first targeted an initial
+broader design that traced one hop into a resolved call's own arguments to approximate the
+cross-file production-render-function shape; that design proved unsound, producing dozens of
+false positives on ordinary `fs.readFileSync(path.join(...))` + `assert.match` patterns (correct
+code, not instances of the defect), because a call's return value cannot be soundly assumed to
+embed one of its own arguments just because that argument is a path. The call-argument tracing was
+removed in favor of a one-hop receiver model that flagged ANY direct path-returning call as taint,
+with or without a template literal. The second sweep, run against that narrower rule, found the
+one-hop-receiver model was itself still too broad: it produced 45 false positives across `tests/`
+of exactly one shape — a bare path value probed for a structural property of its own (suffix,
+prefix, or non-emptiness), e.g. `.endsWith('.md')` file-extension checks, `.startsWith(root)`
+path-confinement checks, and `.length > 0` non-emptiness checks — none of which are instances of
+the #4421 OS-tmpdir-length hazard. Bare-direct-path-call matching was removed, restricting the
+rule to fire ONLY when the asserted-on value is a template literal interpolating a path-returning
+expression. The known miss (the literal cross-file-render-function shape, a receiver-side
+two-hop chain, or a path value arriving as a function parameter) is disclosed in the rule's own
+header rather than attempted unsoundly.
 
 **Taxonomy coverage.** This catalog addresses every `DEFECT.WINDOWS-*` class plus
 `DEFECT.TEST-SHELL-PIPELINE-NONPORTABLE` in `CONTEXT.md`, to the extent each is *statically*

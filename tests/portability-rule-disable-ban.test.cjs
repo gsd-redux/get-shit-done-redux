@@ -47,6 +47,8 @@ const PROTECTED_RULES = [
   // #4244 hardening (origin #4020 / #4220 Windows CI hang) — applies to tests/**/*.test.cjs
   'require-full-tmpdir-triad',
   'no-unbounded-dirname-walk',
+  // #4590 (epic #4589 Phase 1)
+  'no-rendered-text-length-assert',
 ];
 
 // ── Detect disable directives via the comment text ───────────────────────────
