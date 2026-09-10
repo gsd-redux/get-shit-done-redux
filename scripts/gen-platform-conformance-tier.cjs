@@ -8,6 +8,23 @@
  * usage, chmod mode bits, etc.) and therefore need REAL-OS coverage rather
  * than a Linux-only conformance lane (#4591).
  *
+ * Only `unit`-suite test files (no suite suffix, per `scripts/run-tests.cjs`'s
+ * `suiteOf()`) are considered for the conformance tier. `install`-,
+ * `security`-, `slow`-, `integration`-, and `qa`-suffixed files are excluded
+ * entirely — never merely deprioritized — for two independent reasons: (1)
+ * `install`/`slow` are explicitly PR-excluded suites
+ * (`scripts/affected-tests-lib.cjs`'s `PR_EXCLUDED_SUITES`; "PRs must never
+ * select or run these"), and this generator's output feeds a `pull_request`-
+ * triggered job; (2) `integration`/`security` already run via their own
+ * separate, dedicated, unsharded, shard-1-only steps in the `test`/
+ * `test-full` jobs (.github/workflows/test.yml) — folding any of them into
+ * this job's generic `--files-from` + `--shard` invocation is unproven and,
+ * per the incident below, unsafe. Real incident that surfaced this: a live
+ * CI run's `conformance test (windows-latest, shard 2/3)` job was killed with
+ * 11 tests in flight — including `tests/release-tarball-smoke.install.test.cjs`
+ * — because this generator had (wrongly) placed an `install`-suite file into
+ * the Linux-conformance candidate pool with no suite filtering at all.
+ *
  * `classifyContent(content)` is the pure, exported classifier: it favors
  * simple, auditable substring/regex matching over AST parsing, mirroring
  * eslint-rules/lib/portability-vocab.cjs's own design stance (over-inclusion
@@ -51,6 +68,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
+const { suiteOf } = require('./run-tests.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_TESTS_DIR = path.join(ROOT, 'tests');
@@ -180,8 +198,12 @@ function walkTestFiles(dir) {
  */
 function classifyTree(testsDir) {
   const absoluteFiles = walkTestFiles(testsDir);
+  // Only unit-suite files (no suite suffix) are eligible for the conformance
+  // tier — see the header doc-comment for why suite-tagged files are excluded
+  // entirely rather than merely deprioritized.
+  const unitFiles = absoluteFiles.filter((absPath) => suiteOf(absPath) === null);
   const flagged = [];
-  for (const absPath of absoluteFiles) {
+  for (const absPath of unitFiles) {
     const content = fs.readFileSync(absPath, 'utf8');
     const { needsRealOs } = classifyContent(content);
     if (needsRealOs) {

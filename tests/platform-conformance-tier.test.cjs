@@ -9,7 +9,10 @@
  * through the process seam (tests/helpers/process-seam.cjs's `runNode`) per
  * CONTRIBUTING.md's "spawning a subprocess: use the process seam" rule. Row
  * 19 is a real-tree regression proving the committed generated file matches a
- * fresh sweep of this repo's actual tests/ tree.
+ * fresh sweep of this repo's actual tests/ tree. Rows 20-21 prove the
+ * suite-exclusion fix (#4591 CI incident): a suite-tagged file must never
+ * enter the conformance-tier pool even when its content would otherwise
+ * qualify, and the committed generated file must contain zero such files.
  */
 
 const { describe, test } = require('node:test');
@@ -218,6 +221,36 @@ describe('gen-platform-conformance-tier.cjs CLI (temp fixture tree)', () => {
   });
 });
 
+// ─── Row 20: suite-tagged files are excluded even when their content qualifies
+
+describe('gen-platform-conformance-tier.cjs CLI (temp fixture tree) — suite exclusion', () => {
+  test('a suite-suffixed file is excluded even with a qualifying content signal', () => {
+    const tmpDir = createTempDir('gen-platform-conformance-tier-suite-');
+    try {
+      const testsDir = path.join(tmpDir, 'tests');
+      fs.mkdirSync(testsDir, { recursive: true });
+      const signal = "if (process.platform === 'win32') {}\n";
+      fs.writeFileSync(path.join(testsDir, 'foo.test.cjs'), signal);
+      fs.writeFileSync(path.join(testsDir, 'foo.install.test.cjs'), signal);
+      const outPath = path.join(tmpDir, 'platform-conformance-tier.generated.cjs');
+
+      const write = runGen(['--write', '--tests-dir', testsDir, '--out', outPath]);
+      assert.equal(write.exitCode, 0, write.stderr);
+
+      delete require.cache[require.resolve(outPath)];
+      const generated = require(outPath);
+
+      assert.deepEqual(
+        generated.CONFORMANCE_TIER_FILES,
+        ['tests/foo.test.cjs'],
+        'the install-suite file must be excluded even though its content would otherwise qualify',
+      );
+    } finally {
+      cleanup(tmpDir);
+    }
+  });
+});
+
 // ─── Row 19: real tests/ tree, regression against the committed artifact ─────
 
 describe('gen-platform-conformance-tier.cjs — real repo tree (regression)', () => {
@@ -229,9 +262,10 @@ describe('gen-platform-conformance-tier.cjs — real repo tree (regression)', ()
       fresh = classifyTree(realTestsDir);
     }, 'a full sweep of the real tests/ tree must complete without throwing');
 
-    // Measured 565/952 at authoring time (#4591) — the range below is a sanity
-    // ballpark with headroom for organic test-suite growth in either
-    // direction, not a brittle exact-match on that literal.
+    // Measured 546/952 at authoring time (#4591, post suite-exclusion fix) —
+    // the range below is a sanity ballpark with headroom for organic
+    // test-suite growth in either direction, not a brittle exact-match on
+    // that literal.
     assert.ok(
       fresh.files.length >= 450 && fresh.files.length <= 700,
       `expected a real, current, sanity-checked count in [450, 700], got ${fresh.files.length}`,
@@ -249,6 +283,25 @@ describe('gen-platform-conformance-tier.cjs — real repo tree (regression)', ()
       committed.CONFORMANCE_TIER_FILES.slice().sort(),
       fresh.files.slice().sort(),
       'the committed list must match a fresh sweep exactly, not just in length',
+    );
+  });
+
+  // ─── Row 21: no suite-tagged file ever reaches the committed conformance
+  // tier — the exact assertion that would have caught the CI incident before
+  // it ever shipped.
+  test('the committed conformance-tier list contains zero suite-tagged files', () => {
+    delete require.cache[require.resolve(GENERATED_PATH)];
+    const { CONFORMANCE_TIER_FILES } = require(GENERATED_PATH);
+
+    const suiteTaggedPattern = /\.(install|security|slow|integration|qa)\.test\.cjs$/;
+    const offenders = CONFORMANCE_TIER_FILES.filter((f) => suiteTaggedPattern.test(f));
+
+    assert.deepEqual(
+      offenders,
+      [],
+      'suite-tagged files (install/security/slow/integration/qa) must never appear in the ' +
+        'conformance-tier list — install/slow are PR-excluded suites and integration/security ' +
+        'already run via their own dedicated steps',
     );
   });
 });
