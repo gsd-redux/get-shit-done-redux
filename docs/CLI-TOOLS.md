@@ -1249,9 +1249,9 @@ never overwrites a different file already on disk
 (`skipped_destination_exists`). A destination that is already byte-identical to
 its backup is reported as `already_present` and left untouched — it counts
 toward neither `eligible_count` nor `restored_count`, so a plan run after a
-successful restore is silent. Symlinked backup entries are skipped outright
-rather than followed (`skipped_unsafe_path`). A single unwritable entry is
-reported and the remaining entries still restore.
+successful restore no longer offers the same file again. Symlinked backup
+entries are skipped outright rather than followed (`skipped_unsafe_path`). A
+single unwritable entry is reported and the remaining entries still restore.
 
 ---
 

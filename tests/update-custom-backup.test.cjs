@@ -1193,7 +1193,7 @@ describe('restore-custom-files — byte-identical destination settles the restor
     const json = parseRestore(tmpDir);
 
     assert.strictEqual(entryFor(json, REL).outcome, OUTCOME.ALREADY_PRESENT);
-    assert.strictEqual(json.eligible_count, 0, 'an already-present file is nothing accepting would restore');
+    assert.strictEqual(json.eligible_count, 0, 'accepting the prompt would restore nothing for an already-present file');
     assert.strictEqual(json.restored_count, 0);
     assert.strictEqual(json.entries.length, 1, 'the entry is still reported (RESTORE_TOTAL semantics unchanged)');
     assert.strictEqual(json.entries.length, json.eligible_count + json.skipped_count);
