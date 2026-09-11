@@ -147,7 +147,7 @@ describe('#4568 — execute-plan.md extracts the full N-segment phase from a pla
 
 describe('#4568 — plan-phase.md captures the full N-segment --research-phase value', () => {
   const text = fs.readFileSync(PLAN_PHASE, 'utf8');
-  const pattern = extractAnchoredRegex(text, '--research-phase');
+  const pattern = extractAnchoredRegex(text, '=~ --research-phase[[:space:]]+(');
 
   function captureResearchPhase(args) {
     const script = [
