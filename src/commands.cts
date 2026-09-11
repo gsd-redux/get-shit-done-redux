@@ -1489,19 +1489,33 @@ function detectPhaseNumberFromFiles(files: string[] | undefined): string | null 
         const phaseDir = segments[i + 1];
         if (!phaseDir) continue;
         const token = extractPhaseToken(phaseDir);
-        // extractPhaseToken falls back to returning dirName unchanged when no
-        // numeric token is found. normalizePhaseName is the canonical arbiter
-        // of "is this a real phase token": it strips the project-code prefix
-        // and returns a zero-padded numeric form for a genuine phase token, or
-        // the input unchanged otherwise. Accept the token only when it
-        // normalizes to a numeric phase form (the single-owner rule shared by
-        // every other phase-token reader — see #2528).
-        const normalized = normalizePhaseName(token);
+        // normalizePhaseName is the canonical arbiter of "is this a real phase
+        // token": it strips the project-code prefix and returns a zero-padded
+        // numeric form for a genuine phase token, or the input unchanged
+        // otherwise. Accept the token whenever it normalizes to a numeric
+        // phase form (the single-owner rule shared by every other phase-token
+        // reader — see #2528).
+        //
+        // #4126 fix: this used to also require `token !== phaseDir`, on the
+        // assumption that extractPhaseToken returning its input unchanged
+        // always means "no numeric token found" (its no-match fallback).
+        // That assumption is false for a BARE phase directory with no slug
+        // remainder (e.g. `.planning/phases/01/`): extractPhaseToken correctly
+        // reads "01" as the token, which is simply identical to the directory
+        // name in that case — not a fallback. The stale equality check
+        // rejected every such directory, leaving `phaseNum` null and silently
+        // skipping the whole phase-branch block below (undetected because
+        // `phaseTokenShape.test(normalized)` already excludes genuine
+        // non-phase fallbacks — e.g. `docs`, `CK-docs` — on its own, since
+        // extractPhaseToken's real no-match fallback only fires for dirNames
+        // that do not start with a digit or short letter+digit prefix, which
+        // normalizePhaseName's leading-`\d+` requirement rejects regardless).
         // Built from the single-owner PHASE_NUMBER_TOKEN_SOURCE (the canonical
         // phase-number grammar — #2128 anti-divergence guard) so this read-side
         // acceptance check cannot drift from every other phase-token reader.
+        const normalized = normalizePhaseName(token);
         const phaseTokenShape = new RegExp(`^${PHASE_NUMBER_TOKEN_SOURCE}$`, 'i');
-        if (token !== phaseDir && phaseTokenShape.test(normalized)) {
+        if (phaseTokenShape.test(normalized)) {
           return token;
         }
       }
