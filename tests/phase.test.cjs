@@ -527,6 +527,30 @@ describe('phase next-decimal command', () => {
     assert.strictEqual(output.found, false, 'base phase not found');
     assert.strictEqual(output.next, '06.1', 'should still suggest 06.1');
   });
+
+  // #4569: cmdPhaseNextDecimal migrated to the shared scanExistingDecimalPhaseNumbers
+  // helper (also consumed by cmdPhaseInsert), which counts a checklist-only decimal
+  // bullet even when no heading and no on-disk directory exist for it yet.
+  test('#4569: sees a checklist-only decimal with no heading and no on-disk directory', () => {
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '03-something'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+
+- [ ] Phase 3.1: Something
+`
+    );
+
+    const result = runGsdTools('phase next-decimal 3', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.next, '03.2', 'checklist-only 3.1 must be counted, not just headings/dirs');
+    assert.deepStrictEqual(output.existing, ['03.1'], 'checklist-only decimal listed as existing');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3211,6 +3235,86 @@ describe('phase insert command', () => {
 
     const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
     assert.ok(roadmap.includes('Phase 05.1: Hotfix (INSERTED)'), 'roadmap should include inserted phase');
+  });
+
+  // #4569: cmdPhaseInsert's decimal allocation must count an existing decimal
+  // regardless of WHICH of the three representations (on-disk directory,
+  // `### Phase N.M:` heading, `- [ ] Phase N.M:` checklist bullet) carries it —
+  // via the shared scanExistingDecimalPhaseNumbers helper.
+  test('#4569 core regression: does not reallocate a decimal that exists only as a roadmap checklist bullet', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+
+- [ ] Phase 3.1: Something
+`
+    );
+
+    const result = runGsdTools('phase insert 3 New Thing', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phase_number, '03.2', 'checklist-only 3.1 must not be reallocated as 03.1');
+    assert.ok(
+      fs.existsSync(path.join(tmpDir, '.planning', 'phases', '03.2-new-thing')),
+      'new decimal phase directory should be 03.2, not a collision with the checklist-only 03.1'
+    );
+  });
+
+  test('#4569 independence check: a decimal present in heading, checklist, and on-disk directory simultaneously is counted once', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+
+### Phase 3.1: Existing Decimal
+**Goal:** Test
+
+- [ ] Phase 3.1: Existing Decimal
+`
+    );
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '03.1-existing-decimal'), { recursive: true });
+
+    const result = runGsdTools('phase insert 3 New Thing', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(
+      output.phase_number,
+      '03.2',
+      'triple-represented 03.1 must count once, not skip ahead or collide'
+    );
+  });
+
+  test('#4569 negative-space: a checklist bullet for an unrelated phase family does not pollute this phase\'s decimal allocation', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+
+### Phase 13: Unrelated
+**Goal:** Unrelated
+
+- [ ] Phase 13.2: Unrelated Decimal
+`
+    );
+
+    const result = runGsdTools('phase insert 3 New Thing', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(
+      output.phase_number,
+      '03.1',
+      'phase 13\'s checklist decimal must not cross-pollute phase 3\'s allocation'
+    );
   });
 });
 
