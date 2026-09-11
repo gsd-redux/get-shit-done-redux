@@ -44,7 +44,7 @@ function fixedSnippet(sourceVar, prefix, indent = '') {
 
 function runFixed(phaseNumberValue) {
   const script = `PHASE_NUMBER="${phaseNumberValue}"\n${fixedSnippet('PHASE_NUMBER', 'PHASE')}\necho "$PHASE_N"`;
-  return execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: TIMEOUT }).trim();
+  return execFileSync('bash', [], { input: script, encoding: 'utf8', timeout: TIMEOUT }).trim();
 }
 
 describe('#4619 — execute-phase decimal/N-segment phase-number arithmetic', () => {
@@ -90,7 +90,7 @@ describe('#4619 — execute-phase decimal/N-segment phase-number arithmetic', ()
       const script = `echo ${JSON.stringify(subject)} | grep -qE ${JSON.stringify(re)}`;
       let matched;
       try {
-        execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: TIMEOUT });
+        execFileSync('bash', [], { input: script, encoding: 'utf8', timeout: TIMEOUT });
         matched = true;
       } catch {
         matched = false;
@@ -113,7 +113,7 @@ describe('#4619 — execute-phase decimal/N-segment phase-number arithmetic', ()
       const script = `echo ${JSON.stringify(subject)} | grep -qE ${JSON.stringify(re)}`;
       let matched;
       try {
-        execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: TIMEOUT });
+        execFileSync('bash', [], { input: script, encoding: 'utf8', timeout: TIMEOUT });
         matched = true;
       } catch {
         matched = false;
