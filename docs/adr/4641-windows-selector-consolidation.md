@@ -168,6 +168,21 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
 - Non-Linux jobs on a `full_matrix` PR: **7 → 4**. Against the true pre-epic baseline of 9, epic
   #4589 plus this ADR deliver **9 → 4 (-56%)**, versus the -33% its closeout claimed against a
   denominator that excluded this lane.
+
+  **Measured, not computed** — read off real job lists rather than derived from the workflow file,
+  which is the verification epic #4589's own closeout skipped:
+
+  | | PR #4640 (the trigger) | PR #4643 (this change) |
+  |---|---:|---:|
+  | jobs in the `test.yml` run | 21 | **15** |
+  | non-Linux jobs | 7 | **4** |
+  | `test` job | 4 ubuntu + 3 windows | 4 ubuntu, **0 windows** |
+  | conformance tier size | 547 files | **265 files** |
+
+  One caveat stated rather than glossed: a PR's *total check count* is not a clean before/after,
+  because many gates are path-scoped and this change touches a broader path set than #4640. The
+  like-for-like figure is the `test.yml` job count and its non-Linux portion, which is what the
+  epic's goal was about.
 - **282 test files leave real-OS Windows execution** — 292 dropped when the two detectors were
   removed, 10 restored (9 by the narrow `shell-interpreter-spawn` replacement, 1 by `ALWAYS_REAL_OS`).
   This is a real coverage change, not a refactor. It is defensible because every file that stays out
