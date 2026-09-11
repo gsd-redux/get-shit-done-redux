@@ -174,10 +174,16 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
 
   | | PR #4640 (the trigger) | PR #4643 (this change) |
   |---|---:|---:|
-  | jobs in the `test.yml` run | 21 | **15** |
+  | jobs in the completed `test.yml` run | 21 | **17** |
   | non-Linux jobs | 7 | **4** |
   | `test` job | 4 ubuntu + 3 windows | 4 ubuntu, **0 windows** |
   | conformance tier size | 547 files | **265 files** |
+
+  Both job totals are counted the same way — every job in the *completed* run, which includes the
+  post-test `Coverage gate` and baseline-publisher jobs. An earlier draft of this table compared
+  #4640's completed total against this run's count at matrix-expansion time, before those trailing
+  jobs exist; that is an apples-to-oranges comparison and the kind of error this ADR is otherwise
+  about, so it is called out rather than quietly corrected.
 
   One caveat stated rather than glossed: a PR's *total check count* is not a clean before/after,
   because many gates are path-scoped and this change touches a broader path set than #4640. The
