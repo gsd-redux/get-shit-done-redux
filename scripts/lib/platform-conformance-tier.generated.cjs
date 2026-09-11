@@ -82,6 +82,7 @@ module.exports = {
   "tests/execute-wave-post-gate-pipeline-e2e.test.cjs",
   "tests/executed-plan.test.cjs",
   "tests/executor-mvp-tdd-section.test.cjs",
+  "tests/external-descriptor-confinement.test.cjs",
   "tests/failing-direction.test.cjs",
   "tests/fallow-runner.test.cjs",
   "tests/faulty-deps.test.cjs",

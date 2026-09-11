@@ -31,6 +31,7 @@ const {
   CATEGORIES,
   MACOS_CATEGORIES,
   walkTestFiles,
+  ALWAYS_REAL_OS,
 } = require('../scripts/gen-platform-conformance-tier.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -780,5 +781,68 @@ describe('conformance tier narrowing (#4641)', () => {
     const content = fs.readFileSync(absPath, 'utf8');
     const { needsRealOs } = classifyContent(content);
     assert.equal(needsRealOs, false, 'tests/windows-robustness.test.cjs');
+  });
+});
+
+// ─── #4641: ALWAYS_REAL_OS escape hatch for code-under-test-only signals ───
+
+describe('ALWAYS_REAL_OS escape hatch (#4641)', () => {
+  test('is a Map, so every entry is forced to carry a reason', () => {
+    assert.ok(ALWAYS_REAL_OS instanceof Map, 'ALWAYS_REAL_OS must be a Map');
+  });
+
+  test('every key is present in the committed Windows CONFORMANCE_TIER_FILES', () => {
+    delete require.cache[require.resolve(GENERATED_PATH)];
+    const { CONFORMANCE_TIER_FILES } = require(GENERATED_PATH);
+    const committedSet = new Set(CONFORMANCE_TIER_FILES);
+    for (const relPath of ALWAYS_REAL_OS.keys()) {
+      assert.ok(
+        committedSet.has(relPath),
+        `${relPath} is in ALWAYS_REAL_OS but missing from the committed Windows tier — ` +
+          'run `node scripts/gen-platform-conformance-tier.cjs --write`',
+      );
+    }
+  });
+
+  test('every entry has a non-empty recorded reason', () => {
+    for (const [relPath, reason] of ALWAYS_REAL_OS.entries()) {
+      assert.equal(typeof reason, 'string', `${relPath}: reason must be a string`);
+      assert.ok(reason.trim().length > 0, `${relPath}: reason must be non-empty`);
+    }
+  });
+
+  test('every key names a file that actually exists on disk', () => {
+    for (const relPath of ALWAYS_REAL_OS.keys()) {
+      const absPath = path.join(ROOT, relPath);
+      assert.ok(
+        fs.existsSync(absPath),
+        `${relPath} is enumerated in ALWAYS_REAL_OS but does not exist on disk — stale allowlist entry ` +
+          '(silent rot: the file was likely deleted or renamed)',
+      );
+    }
+  });
+
+  test('tests/external-descriptor-confinement.test.cjs is enumerated (#4641)', () => {
+    // It exercises isPathConfined (src/external-descriptor-trust.cts:41-49),
+    // which uses the AMBIENT path module (path.resolve/path.sep) with no
+    // platform/path injection — its win32 branch (drive letters, UNC paths,
+    // \ separator) is only reachable by actually running on Windows. A
+    // security-relevant write-confinement gate; do not remove this entry to
+    // "clean up" the allowlist.
+    assert.ok(
+      ALWAYS_REAL_OS.has('tests/external-descriptor-confinement.test.cjs'),
+      'tests/external-descriptor-confinement.test.cjs must stay in ALWAYS_REAL_OS',
+    );
+  });
+
+  test('does not leak into the macOS tier — macOS is POSIX, the win32 concern does not apply', () => {
+    delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
+    const { MACOS_CONFORMANCE_TIER_FILES } = require(MACOS_GENERATED_PATH);
+    const macosSet = new Set(MACOS_CONFORMANCE_TIER_FILES);
+    assert.ok(
+      !macosSet.has('tests/external-descriptor-confinement.test.cjs'),
+      'tests/external-descriptor-confinement.test.cjs must be absent from MACOS_CONFORMANCE_TIER_FILES ' +
+        '(the ALWAYS_REAL_OS entry is Windows-only)',
+    );
   });
 });

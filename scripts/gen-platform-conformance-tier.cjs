@@ -215,6 +215,50 @@ const CATEGORIES = [
 const NOISY_FOR_SOURCE_REACHABILITY = new Set(['symlink-keyword']);
 
 /**
+ * Escape hatch, WINDOWS TIER ONLY (union'd into `classifyTree`, never into
+ * `classifyMacosTree`/`MACOS_CATEGORIES` — those stay untouched by this map).
+ *
+ * `classifyContent` above is a STATIC CONTENT classifier: it can only see
+ * text in the test file itself. Some files need real-OS coverage for a
+ * reason that lives in the CODE UNDER TEST, not in the test's own text — no
+ * regex over the test file can ever detect that, because the signal simply
+ * isn't there to find. Rather than chase that gap with ever-more-specific
+ * content heuristics (the exact failure mode #4641 measured and rolled
+ * back — see the header comment above), this map is the single, centrally-
+ * enumerated source of truth for those cases, matching ADR-1703's
+ * `portability-vocab.cjs` stance and epic #4589 Phase 2's explicit
+ * requirement that such overrides be "centrally-enumerated, not a naming
+ * convention". It is deliberately NOT a heuristic: it is a `Map` (path ->
+ * reason) precisely so every entry is forced to carry a recorded,
+ * human-reviewed reason at the call site — an entry without one is
+ * impossible by construction (there is no positional/array form that would
+ * let a path be added without a paired reason string).
+ *
+ * Adding an entry requires a recorded reason and should be rare: prefer
+ * fixing the classifier (a new CATEGORIES signal) when the real-OS need IS
+ * expressible as content; reach for this map only when it structurally is
+ * not.
+ *
+ * Current entries:
+ * - tests/external-descriptor-confinement.test.cjs: exercises `isPathConfined`
+ *   (src/external-descriptor-trust.cts:41-49), which calls the AMBIENT
+ *   `path` module directly — `path.resolve(root, target)` and `path.sep` —
+ *   with no platform/path injection seam. Its win32 semantics (drive
+ *   letters, UNC paths, `\` separator) are therefore only reachable by
+ *   actually running on Windows; the win32 branch is unreachable on Linux.
+ *   This is a security-relevant write-confinement gate, so a silent gap
+ *   here is a security regression, not a coverage nit (#4641).
+ */
+const ALWAYS_REAL_OS = new Map([
+  [
+    'tests/external-descriptor-confinement.test.cjs',
+    'Exercises isPathConfined (src/external-descriptor-trust.cts:41-49), which uses the ambient ' +
+      'path module (path.resolve/path.sep) with no platform injection; its win32 branch (drive ' +
+      'letters, UNC paths, \\ separator) is unreachable on Linux. Security-relevant write-confinement gate.',
+  ],
+]);
+
+/**
  * macOS-specific detection categories (#4593, design doc
  * .gsd/phase/chore-4593-macos-conformance-tier/40-design.md). Built new,
  * rather than reusing CATEGORIES above minus its Windows-specific entries,
@@ -313,15 +357,20 @@ function classifyTree(testsDir) {
   const unitFiles = absoluteFiles.filter((absPath) => suiteOf(absPath) === null);
   const flagged = [];
   for (const absPath of unitFiles) {
+    const rel = 'tests/' + path.relative(testsDir, absPath).replace(/\\/g, '/');
     const content = fs.readFileSync(absPath, 'utf8');
     const { needsRealOs } = classifyContent(content);
-    if (needsRealOs) {
-      const rel = path.relative(testsDir, absPath).replace(/\\/g, '/');
-      flagged.push('tests/' + rel);
+    // The ALWAYS_REAL_OS escape hatch (Windows tier only — see its doc
+    // comment) is unioned in HERE, keyed off a file that this walk actually
+    // found, rather than blindly appended regardless of `testsDir` — that
+    // keeps the escape hatch from leaking a real-repo path into an unrelated
+    // temp-fixture-tree classification (e.g. this module's own tests).
+    if (needsRealOs || ALWAYS_REAL_OS.has(rel)) {
+      flagged.push(rel);
     }
   }
-  flagged.sort();
-  return { total: absoluteFiles.length, files: flagged };
+  const result = [...new Set(flagged)].sort();
+  return { total: absoluteFiles.length, files: result };
 }
 
 /**
@@ -497,6 +546,7 @@ module.exports = {
   classifyContent,
   CATEGORIES,
   NOISY_FOR_SOURCE_REACHABILITY,
+  ALWAYS_REAL_OS,
   walkTestFiles,
   classifyTree,
   renderGeneratedFile,
