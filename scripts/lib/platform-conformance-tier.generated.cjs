@@ -328,6 +328,7 @@ module.exports = {
   "tests/normalize-test-command.test.cjs",
   "tests/npm-audit-baseline.test.cjs",
   "tests/npm-integrity-gate.test.cjs",
+  "tests/nsegment-phase-grammar.test.cjs",
   "tests/onboard-command.test.cjs",
   "tests/opencode-command-dir-plural.test.cjs",
   "tests/opencode-permissions.test.cjs",
