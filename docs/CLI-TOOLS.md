@@ -162,7 +162,7 @@ node gsd-tools.cjs phase next-decimal <phase>
 node gsd-tools.cjs phase add <description>
 
 # Insert decimal phase after existing
-node gsd-tools.cjs phase insert <after> <description>
+node gsd-tools.cjs phase insert <after> <description> [--sibling]
 
 # Remove phase, renumber subsequent
 node gsd-tools.cjs phase remove <phase> [--force]
