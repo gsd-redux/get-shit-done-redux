@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   findNameValidityDrift,
+  findBranchSlugFallbackDrift,
   findShellPhaseArithDrift,
 } = require('../scripts/lint-phase-id-drift.cjs');
 
@@ -42,6 +43,28 @@ test('findNameValidityDrift does NOT flag a sanctioned site', () => {
     'const re = /[\\p{L}\\p{N}]/u;',
   ].join('\n');
   assert.deepEqual(findNameValidityDrift(text), []);
+});
+
+test('findBranchSlugFallbackDrift flags the commands.cts/init.cts {slug}-fallback shape', () => {
+  const text =
+    "      .replace('{slug}', (phaseInfo['phase_slug'] as string) || 'phase');";
+  const found = findBranchSlugFallbackDrift(text);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].line, 1);
+});
+
+test('findBranchSlugFallbackDrift does NOT flag the milestone-branch || \'milestone\' fallback', () => {
+  const text =
+    "      .replace('{slug}', generateSlugInternal(milestone.name) || 'milestone');";
+  assert.deepEqual(findBranchSlugFallbackDrift(text), []);
+});
+
+test('findBranchSlugFallbackDrift does NOT flag a sanctioned site', () => {
+  const text = [
+    '// phase-id-owner: deliberate, tracked in #4634',
+    "  .replace('{slug}', (phaseInfo['phase_slug'] as string) || 'phase');",
+  ].join('\n');
+  assert.deepEqual(findBranchSlugFallbackDrift(text), []);
 });
 
 test('findShellPhaseArithDrift flags $((10#...)) base-10-forced arithmetic', () => {

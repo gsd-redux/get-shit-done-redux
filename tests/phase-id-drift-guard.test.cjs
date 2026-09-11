@@ -264,7 +264,7 @@ describe('#2761 M3 bracket grammar: one owner, byte-identical to the sites it re
 });
 
 describe('#2128 phase-id drift scanner: the live repo is clean', () => {
-  test('scanRepo finds zero unsanctioned re-derivations (token, bracket, and name-validity)', () => {
+  test('scanRepo finds zero unsanctioned re-derivations (token, bracket, name-validity, and branch-slug-fallback)', () => {
     const violations = scanRepo(ROOT);
     assert.deepEqual(
       violations,
@@ -314,6 +314,28 @@ describe('#2128 phase-id drift scanner: the live repo is clean', () => {
       const found = scanRepo(tmp);
       assert.equal(found.length, 1, 'scanRepo must report the planted name-validity literal');
       assert.equal(found[0].kind, 'name-validity');
+      assert.equal(found[0].file, path.join('src', 'planted.cts'));
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
+  test('scanRepo actually runs the branch-slug-fallback rule (coverage, not just a clean result)', () => {
+    // Same proof shape again, for #4634's branch-slug-fallback detector: plant
+    // the shipped commands.cts/init.cts shape into a temp tree and require the
+    // real scanRepo() to catch it end-to-end.
+    const os = require('node:os');
+    const { cleanup } = require('./helpers.cjs');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'phase-id-drift-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'src'));
+      fs.writeFileSync(
+        path.join(tmp, 'src', 'planted.cts'),
+        "const x = template.replace('{slug}', (phaseInfo['phase_slug'] as string) || 'phase');\n",
+      );
+      const found = scanRepo(tmp);
+      assert.equal(found.length, 1, 'scanRepo must report the planted branch-slug-fallback literal');
+      assert.equal(found[0].kind, 'branch-slug-fallback');
       assert.equal(found[0].file, path.join('src', 'planted.cts'));
     } finally {
       cleanup(tmp);
