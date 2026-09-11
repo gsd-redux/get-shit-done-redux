@@ -297,6 +297,53 @@ describe('#2128 phase-id drift scanner: the live repo is clean', () => {
     }
   });
 
+  test('scanRepo actually runs the name-validity rule (coverage, not just a clean result)', () => {
+    // Same proof shape as the bracket-rule test above, for #4634's new
+    // name-validity detector: plant a literal re-derivation of
+    // hasNameableContent's character class in a temp tree and require the
+    // real scanRepo() to catch it end-to-end.
+    const os = require('node:os');
+    const { cleanup } = require('./helpers.cjs');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'phase-id-drift-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'src'));
+      fs.writeFileSync(
+        path.join(tmp, 'src', 'planted.cts'),
+        'function fakeCheck(s) {\n  return /[\\p{L}\\p{N}]/u.test(s);\n}\n',
+      );
+      const found = scanRepo(tmp);
+      assert.equal(found.length, 1, 'scanRepo must report the planted name-validity literal');
+      assert.equal(found[0].kind, 'name-validity');
+      assert.equal(found[0].file, path.join('src', 'planted.cts'));
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
+  test('scanMarkdownShellArith actually runs the shell-arith rule (coverage, not just a clean result)', () => {
+    // Same proof shape again, for #4634's markdown shell-arithmetic detector:
+    // plant a `$((10#$VAR))` site under the real scan roots
+    // (gsd-core/workflows/**/*.md) and require scanMarkdownShellArith() to
+    // catch it end-to-end, over the real MD_SCAN_DIRS walk.
+    const os = require('node:os');
+    const { cleanup } = require('./helpers.cjs');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'phase-id-drift-'));
+    try {
+      const workflowsDir = path.join(tmp, 'gsd-core', 'workflows');
+      fs.mkdirSync(workflowsDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(workflowsDir, 'planted.md'),
+        '```bash\nPHASE_N=$((10#$PHASE_NUM))\n```\n',
+      );
+      const found = scanMarkdownShellArith(tmp);
+      assert.equal(found.length, 1, 'scanMarkdownShellArith must report the planted shell-arith literal');
+      assert.equal(found[0].kind, 'shell-arith');
+      assert.equal(found[0].file, path.join('gsd-core', 'workflows', 'planted.md'));
+    } finally {
+      cleanup(tmp);
+    }
+  });
+
   test(
     "#4619 shell-arith violations are known and tracked separately (characterization, not this PR's scope)",
     () => {
