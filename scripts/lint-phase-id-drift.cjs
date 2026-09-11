@@ -234,10 +234,30 @@ function findBranchSlugFallbackDrift(text) {
   return out;
 }
 
-// #4634: ban base-10-forced shell arithmetic (`$((10#...))`) on any variable —
-// this construct is exactly the pattern that breaks on a decimal or
-// multi-segment phase id, so any occurrence is banned outright, full stop.
-const SHELL_PHASE_ARITH_DRIFT_RE = /\$\(\(\s*10#/;
+// #4634: ban base-10-forced shell arithmetic (`$((10#...))`) on a variable
+// that still carries a possibly-decimal/multi-segment phase id — this
+// construct is exactly the pattern that breaks on a value like `08.5`. The
+// capture group grabs the token immediately inside the parens (after an
+// optional `$` and/or `{`, stripping a trailing `}`) so callers can inspect
+// *which* variable is being coerced, not merely that the substring occurred.
+//
+// Refined post-#4619: the original blunt "ban `$((10#` outright" version
+// over-fired on three false-positive classes once #4619's fix landed:
+//   1. Prose mentioning the literal pattern in a full-line `#`-comment
+//      (filtered by the caller, not this regex — see below).
+//   2. `$((10#$PHASE_INT))` / `$((10#$SPOT_PHASE_INT))` — arithmetic on the
+//      NOW-safe variable the #4619 fix produces via `PHASE_INT=${PHASE_NUMBER%%.*}`;
+//      a `%%.*`-stripped value can never contain a dot, so base-10 arithmetic
+//      on it can never hit the #4619 syntax-error class. Any name ending in
+//      `_INT` (case-insensitive) is that established "already reduced to a
+//      safe integer" convention.
+//   3. `$((10#{plan_padded}))` / `$((10#${PLAN_ID}))` — plan ids are plain
+//      integers and were never in scope; this rule only polices variables
+//      that carry a *phase* id.
+// So a match is only a violation when the captured name contains `phase`
+// case-insensitively (it is phase-carrying) AND does not end in `_int`
+// case-insensitively (it has not already been reduced to a safe integer).
+const SHELL_PHASE_ARITH_DRIFT_RE = /\$\(\(\s*10#\$?\{?([A-Za-z0-9_]+)\}?/;
 
 // A markdown comment can't easily carry a `//` line, so the sanction for the
 // shell-arithmetic rule is an HTML comment on the nearest preceding non-blank
@@ -246,15 +266,25 @@ const MD_OWNER_RE = /^\s*<!--.*phase-id-owner:/;
 
 /**
  * Pure: find every unsanctioned `$((10#...))` base-10-forced shell arithmetic
- * site in `text`. Sanctioned by an HTML comment `<!-- phase-id-owner: ... -->`
- * on the nearest preceding non-blank line. Returns [{ line, found }].
+ * site in `text` that still coerces an un-reduced phase-carrying variable.
+ * Skips full-line `#` comments outright (pure prose mentioning the pattern,
+ * not executable code), and skips any captured variable name that either
+ * doesn't contain `phase` (never in scope — e.g. plan ids) or already ends
+ * in `_int` (the #4619-fix convention for "safely stripped to an integer").
+ * Sanctioned by an HTML comment `<!-- phase-id-owner: ... -->` on the
+ * nearest preceding non-blank line. Returns [{ line, found }].
  */
 function findShellPhaseArithDrift(text) {
   const out = [];
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const m = SHELL_PHASE_ARITH_DRIFT_RE.exec(lines[i]);
+    const line = lines[i];
+    if (/^\s*#/.test(line)) continue;
+    const m = SHELL_PHASE_ARITH_DRIFT_RE.exec(line);
     if (!m) continue;
+    const name = m[1];
+    if (!/phase/i.test(name)) continue;
+    if (/_int$/i.test(name)) continue;
     if (isSanctionedByPrecedingComment(lines, i, MD_OWNER_RE)) continue;
     out.push({ line: i + 1, found: m[0] });
   }

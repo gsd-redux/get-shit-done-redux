@@ -86,3 +86,28 @@ test('findShellPhaseArithDrift does NOT flag a site sanctioned with an HTML comm
   ].join('\n');
   assert.deepEqual(findShellPhaseArithDrift(text), []);
 });
+
+test('findShellPhaseArithDrift still flags a raw un-reduced phase variable (#4619 regression)', () => {
+  const text = 'PHASE_N=$((10#$PHASE_NUMBER))';
+  const found = findShellPhaseArithDrift(text);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].line, 1);
+});
+
+test('findShellPhaseArithDrift does NOT flag arithmetic on an already-`_INT`-reduced phase variable', () => {
+  const text = [
+    'PHASE_INT=${PHASE_NUMBER%%.*}',
+    'PHASE_N=$((10#$PHASE_INT))',
+  ].join('\n');
+  assert.deepEqual(findShellPhaseArithDrift(text), []);
+});
+
+test('findShellPhaseArithDrift does NOT flag arithmetic on a plan-id variable (never phase-carrying)', () => {
+  const text = 'PLAN_N=$((10#${PLAN_ID}))';
+  assert.deepEqual(findShellPhaseArithDrift(text), []);
+});
+
+test('findShellPhaseArithDrift skips a full-line comment merely mentioning the pattern as prose', () => {
+  const text = '# Note: $((10#$PHASE_NUMBER)) is a hard shell syntax error on a decimal id.';
+  assert.deepEqual(findShellPhaseArithDrift(text), []);
+});
