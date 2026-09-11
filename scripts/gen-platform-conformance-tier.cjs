@@ -35,6 +35,16 @@
  * is the safe direction — a false positive costs one extra test running on a
  * real OS; a false negative silently drops real-OS coverage).
  *
+ * That stance is a correct per-file tiebreak, but proved wrong in aggregate
+ * (#4641): applied to two categories that matched the house test idiom
+ * rather than a genuine platform signal, it produced a 546/930 (58.7%)
+ * Windows "tier" — most of the suite. Measured per-category UNIQUE (sole-
+ * signal, i.e. the file would have been excluded without it) contribution:
+ * `process-seam-subprocess` 118 files, `hardcoded-path-vs-path-call` 108
+ * files, every other category 41 files COMBINED. Both were removed outright
+ * from CATEGORIES; post-removal the tier is 254/930 (27.3%). See
+ * docs/adr/4641-windows-selector-consolidation.md for the full rationale.
+ *
  * KNOWN LIMIT, disclosed deliberately: this is a STATIC content classifier,
  * not a real per-file, per-OS behavioral diff. Epic #4589's issue #4591 asked
  * for the cutover to be validated by "running the existing full matrix one
@@ -130,10 +140,6 @@ const CATEGORIES = [
     test: (content) => /\bPATHEXT\b|\bUSERPROFILE\b|\bHOMEDRIVE\b|\bHOMEPATH\b/.test(content),
   },
   {
-    name: 'process-seam-subprocess',
-    test: (content) => /\brunNode\(|\brunGit\(|\brunHook\(|\brunGsdTools\(|\bgitOrThrow\(/.test(content),
-  },
-  {
     name: 'raw-child-process',
     // Requires BOTH the child_process import/reference token AND one of the
     // three call names in the same file — this is what keeps a same-named
@@ -155,25 +161,21 @@ const CATEGORIES = [
     // alone still excludes a mid-word embedding like "presymlink".
     test: (content) => /\bsymlink/i.test(content),
   },
-  {
-    name: 'hardcoded-path-vs-path-call',
-    // Intentionally coarse (design doc: over-inclusion is the safe
-    // direction): a path.* call ANYWHERE in the file plus a quoted
-    // forward-slash-leading string literal ANYWHERE in the file, with no
-    // attempt at proximity/scoping.
-    test: (content) =>
-      /path\.(join|resolve|dirname|basename|normalize|relative)\(/.test(content) &&
-      /['"`]\/[\w.\-/]*['"`]/.test(content),
-  },
 ];
 
-// Two CATEGORIES entries precise enough for TEST-file classification (this
-// module's own purpose) but far too broad for SOURCE-file reachability
-// (scripts/ci-test-scope.cjs's #4592 use). Empirically verified: applying
-// classifyContent to every file under src/ (235 files) flags 100 of them,
-// driven almost entirely by these two categories; excluding them narrows it
-// to 28 files, all verified to carry a genuine platform-conditional branch.
-const NOISY_FOR_SOURCE_REACHABILITY = new Set(['hardcoded-path-vs-path-call', 'symlink-keyword']);
+// A CATEGORIES entry precise enough for TEST-file classification (this
+// module's own purpose) but too broad for SOURCE-file reachability
+// (scripts/ci-test-scope.cjs's #4592 use). This set used to hold a second
+// member, 'hardcoded-path-vs-path-call', alongside 'symlink-keyword'; that
+// category was removed outright from CATEGORIES (#4641 — measured to be the
+// single largest driver of Windows-tier over-inclusion, a universal Node
+// test-suite idiom rather than a platform signal), not merely exempted here,
+// because it was over-broad for BOTH consumers (this module's own Windows
+// tier AND source reachability), not source-reachability alone. Only
+// 'symlink-keyword' remains: still precise enough for test-file
+// classification but, per the same empirical pass described above, too noisy
+// for source reachability.
+const NOISY_FOR_SOURCE_REACHABILITY = new Set(['symlink-keyword']);
 
 /**
  * macOS-specific detection categories (#4593, design doc
