@@ -518,6 +518,21 @@ describe('gen-platform-conformance-tier.cjs — real repo tree, macOS target (re
 // ─── #4641: narrow the Windows conformance tier away from house-idiom noise ───
 
 describe('conformance tier narrowing (#4641)', () => {
+  // Policy ceilings, not derived facts — a bound like this has to be a number
+  // somewhere, so it is hoisted here once rather than left as a bare literal
+  // inside an assertion. Measured at authoring time (2026-09-11): the Windows
+  // tier sat at 255/931 eligible unit-suite files (~27.4%), the macOS tier at
+  // 197/931 (~21.2%). Each ceiling below leaves a few points of headroom over
+  // that measurement — enough to absorb ordinary suite growth (new test files
+  // that happen to touch a real platform signal) without going so loose that
+  // a regression toward re-matching a removed house idiom (process-seam
+  // calls, path-call-plus-slash-literal) would slip back under the ceiling
+  // undetected. If the measured ratio moves, update the ratio in this comment
+  // and re-justify the ceiling — do not just raise the number to make a red
+  // test green.
+  const WINDOWS_TIER_RATIO_CEILING = 0.33;
+  const MACOS_TIER_RATIO_CEILING = 0.25;
+
   test('conformance tier stays a tier, not the suite (#4641)', () => {
     const realTestsDir = path.join(ROOT, 'tests');
     const { suiteOf } = require('../scripts/lib/suite-detection.cjs');
@@ -535,8 +550,8 @@ describe('conformance tier narrowing (#4641)', () => {
 
     const ratio = tierCount / eligibleCount;
     assert.ok(
-      ratio <= 0.33,
-      `expected the conformance tier to be at most 33% of eligible unit-suite files, ` +
+      ratio <= WINDOWS_TIER_RATIO_CEILING,
+      `expected the conformance tier to be at most ${WINDOWS_TIER_RATIO_CEILING * 100}% of eligible unit-suite files, ` +
         `got ${tierCount}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
     );
   });
@@ -558,8 +573,8 @@ describe('conformance tier narrowing (#4641)', () => {
 
     const ratio = tierCount / eligibleCount;
     assert.ok(
-      ratio <= 0.25,
-      `expected the macOS conformance tier to be at most 25% of eligible unit-suite files, ` +
+      ratio <= MACOS_TIER_RATIO_CEILING,
+      `expected the macOS conformance tier to be at most ${MACOS_TIER_RATIO_CEILING * 100}% of eligible unit-suite files, ` +
         `got ${tierCount}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
     );
   });
@@ -618,23 +633,53 @@ describe('conformance tier narrowing (#4641)', () => {
     );
   });
 
-  test('macOS generated tier is unchanged (#4641)', () => {
+  test('macOS generated tier matches a fresh classification of the live tests/ tree (#4641)', () => {
+    const realTestsDir = path.join(ROOT, 'tests');
+    const fresh = classifyMacosTree(realTestsDir);
+
     delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
     const { MACOS_CONFORMANCE_TIER_FILES } = require(MACOS_GENERATED_PATH);
-    assert.equal(MACOS_CONFORMANCE_TIER_FILES.length, 196);
+
+    assert.deepEqual(
+      MACOS_CONFORMANCE_TIER_FILES.slice().sort(),
+      fresh.files.slice().sort(),
+      'the committed macOS generated file must be fresh — run ' +
+        '`node scripts/gen-platform-conformance-tier.cjs --target macos --write`',
+    );
   });
 
-  test('named files remain in the Windows tier after narrowing (#4641)', () => {
+  test('named probe files still classify IN on a genuine platform signal, not by filename (#4641)', () => {
+    // These three files are examples, not the assertion. Each was picked
+    // because it probes a DIFFERENT genuine platform-signal family, so the
+    // three together exercise the narrowed classifier's breadth, not just its
+    // presence: shell-command-projection-dispatch pulls in raw
+    // spawn/shell-dispatch signals, review-lane-windows-spawn-resolution pulls
+    // in Windows path/spawn-resolution signals, and prohibition-enforcement
+    // pulls in process.platform/os.platform conditionals. Asserting by
+    // FILENAME membership is exactly the classifier bug #4641 fixes — a file
+    // being in this literal list proves nothing about why it is in the tier.
+    // So the assertion here is on the SIGNAL: each file must still classify
+    // needsRealOs === true, and its surviving `signals` must be non-empty and
+    // drawn from the real (non-house-idiom) category names still present in
+    // CATEGORIES after the #4641 narrowing.
     const files = [
       'tests/shell-command-projection-dispatch.test.cjs',
       'tests/review-lane-windows-spawn-resolution.test.cjs',
       'tests/prohibition-enforcement.test.cjs',
     ];
+    const validSignalNames = new Set(CATEGORIES.map((c) => c.name));
     for (const rel of files) {
       const absPath = path.join(ROOT, rel);
       const content = fs.readFileSync(absPath, 'utf8');
-      const { needsRealOs } = classifyContent(content);
+      const { needsRealOs, signals } = classifyContent(content);
       assert.equal(needsRealOs, true, rel);
+      assert.ok(signals.length > 0, `${rel}: expected a non-empty signal set, got none`);
+      for (const signal of signals) {
+        assert.ok(
+          validSignalNames.has(signal),
+          `${rel}: signal "${signal}" is not a genuine platform category name (${JSON.stringify([...validSignalNames])})`,
+        );
+      }
     }
   });
 

@@ -487,9 +487,13 @@ function addAll(set, values) {
 // windows lane, turning it into a ~10-minute job on every PR.
 // #4641: the scoped windows lane itself is gone. These hints now drive
 // full_matrix instead — a matched RULE whose tests[] includes a
-// windows-hint filename escalates straight to full_matrix (routed to
-// test-conformance, the sole Windows selector) rather than feeding a
-// side lane. See docs/adr/4641-windows-selector-consolidation.md.
+// windows-hint filename AND that hinted file is itself in the conformance
+// tier (per reachesConformanceTierOrSeam) escalates straight to full_matrix
+// (routed to test-conformance, the sole Windows selector) rather than
+// feeding a side lane. Tier-backed on purpose: full_matrix only ever runs
+// CONFORMANCE_TIER_FILES, so a hint on a non-tier file would cost 4 CI jobs
+// with zero Windows coverage of that file. See
+// docs/adr/4641-windows-selector-consolidation.md.
 const WINDOWS_HINTS = ['windows', 'win32', 'shell', 'path'];
 const isWindowsHint = s => WINDOWS_HINTS.some(k => s.toLowerCase().includes(k));
 
@@ -618,9 +622,26 @@ function classify(files, reachabilityDeps = {}) {
         // #4641: a rule that pulls in a test file matching a Windows-sensitive
         // filename hint is the one non-redundant residue of the deleted
         // scoped windows lane — escalate to full_matrix (test-conformance)
-        // instead of feeding a side lane. Distinct, greppable reason so the
-        // conformance-lane coverage for it is traceable per rule.
-        if (rule.tests.some(isWindowsHint)) {
+        // instead of feeding a side lane. TIER-BACKED (measured): full_matrix
+        // routes to test-conformance, which runs ONLY CONFORMANCE_TIER_FILES —
+        // escalating on the filename hint alone can fire on a hinted test that
+        // isn't in that tier, costing 4 CI jobs while never actually running it
+        // on Windows. The predicate below requires BOTH the hint AND tier
+        // membership (via reachesConformanceTierOrSeam, the same fail-safe
+        // reachability helper used elsewhere in this file, so error/uncertainty
+        // behavior stays identical). Measured: over the 16 RULES entries this
+        // narrowed form fires on the same rules as the un-narrowed form today
+        // (no behavior change now, correct-by-construction going forward). The
+        // broader alternative — escalate on ANY tier member a rule pulls in,
+        // ignoring the filename hint — was measured and rejected: it fires on
+        // 14 of 16 rules, newly escalating most ordinary product-code PRs
+        // (src/, agents/, commands/, hooks/, skills/, config paths). Only one
+        // rule's escalation is live today: 'portability lint rules (ADR-1703)'.
+        // Four others already had fullMatrix: true (no-op here), and 'inert
+        // CI''s escalation is overridden downstream by the inert-CI reset.
+        // Distinct, greppable reason so the conformance-lane coverage for it
+        // is traceable per rule.
+        if (rule.tests.some(t => isWindowsHint(t) && reachesConformanceTierOrSeam(t, reachabilityDeps))) {
           fullMatrix = true;
           reasons.push(`${file}: ${rule.name} (windows-hint rule test, #4641)`);
         }

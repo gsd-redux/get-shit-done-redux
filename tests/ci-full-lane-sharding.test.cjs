@@ -87,15 +87,41 @@ test('the test job has no windows lane; test-conformance is the sole Windows sel
   const conformanceInclude = workflow.jobs['test-conformance'].strategy.matrix.include;
   const conformanceWindowsEntries = conformanceInclude.filter((e) => e.os === 'windows-latest');
   const conformanceMacosEntries = conformanceInclude.filter((e) => e.os === 'macos-latest');
-  assert.equal(
-    conformanceWindowsEntries.length, 3,
-    `expected exactly 3 windows-latest entries in test-conformance, got ${conformanceWindowsEntries.length}: `
+
+  // Derived, not pinned: windows-latest must be a non-empty, COMPLETE shard
+  // set (same denominator, numerators 1..N — see isCompleteShardSet above),
+  // whatever N the workflow currently declares. A bare `.length === 3` here
+  // would break the moment the workflow is rebalanced to a different shard
+  // count without a wiring regression, exactly the shape of bug this sweep
+  // exists to remove (the sibling macOS-tier-count magic number already did
+  // this once).
+  assert.ok(
+    conformanceWindowsEntries.length > 0,
+    `test-conformance declares no windows-latest entries: ${JSON.stringify(conformanceInclude)}`,
+  );
+  assert.ok(
+    isCompleteShardSet(conformanceWindowsEntries.map((e) => e.shard)),
+    'the windows-latest entries in test-conformance are not a complete shard set: '
     + JSON.stringify(conformanceWindowsEntries),
   );
+
+  // macos-latest is, by design, a single UNSHARDED entry (see the workflow's
+  // "macos-latest stays unsharded; it has real headroom" comment above the
+  // `test-conformance` job) — unlike the windows/full shard counts, this "1"
+  // is not a fact about the live tree that grows with the suite, it is the
+  // structural claim the test exists to pin: more than one entry here would
+  // silently duplicate full macOS runs, and a `shard` key would mean the
+  // workflow started partitioning a lane the run-tests.cjs invocation below
+  // does not expect to be partitioned.
   assert.equal(
     conformanceMacosEntries.length, 1,
-    `expected exactly 1 macos-latest entry in test-conformance, got ${conformanceMacosEntries.length}: `
+    `expected a single unsharded macos-latest entry in test-conformance, got ${conformanceMacosEntries.length}: `
     + JSON.stringify(conformanceMacosEntries),
+  );
+  assert.equal(
+    conformanceMacosEntries[0] && conformanceMacosEntries[0].shard, undefined,
+    'the macos-latest entry in test-conformance declares a shard, contradicting the '
+    + `workflow's "macos-latest stays unsharded" design: ${JSON.stringify(conformanceMacosEntries)}`,
   );
 });
 

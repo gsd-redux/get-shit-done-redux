@@ -33,7 +33,9 @@ windows` shards from both sides. Counting every non-Linux job, the epic moved 9 
 ### The tier was 59% of the suite
 
 `node scripts/gen-platform-conformance-tier.cjs` reported **546 of 930** eligible unit-suite files
-(58.7%). Measured per-category contribution, where `UNIQUE` is the count of files for which that
+(58.7%) when this was diagnosed. Measured on this PR's own rebased tree (931 eligible, after #4253
+added a test file) the same comparison is **547 → 255**: the committed list loses exactly 292
+entries and gains none. Measured per-category contribution, where `UNIQUE` is the count of files for which that
 category is the **sole** signal — i.e. the marginal cost of keeping it:
 
 | category | total | UNIQUE |
@@ -110,6 +112,23 @@ therefore **ported into `reachesConformanceTierOrSeam`**: such a RULE-pulled tes
 `full_matrix = true`, and the conformance lane covers it. The signal is preserved; the parallel lane
 is not.
 
+**The escalation is tier-backed, and that condition is load-bearing.** Three variants were measured
+over the 16 entries of `RULES`:
+
+| variant | predicate | rules firing | verdict |
+|---|---|---:|---|
+| A | `isWindowsHint(t)` | 6/16 | Can fire on a test that is **not** in the tier — `full_matrix` goes true, the conformance lane runs, and the hinted test still never runs on Windows. Cost without coverage. |
+| **B (shipped)** | `isWindowsHint(t) && reachesConformanceTierOrSeam(t)` | 6/16 | Identical firing set to A *today*, so no behavior change — but correct by construction: it can only escalate when the conformance lane will actually run the file. |
+| C | `reachesConformanceTierOrSeam(t)` alone | **14/16** | Rejected as over-broad. Would newly escalate most ordinary product-code PRs (`src/`, `agents/`, `commands/`, `hooks/`, `skills/`, config paths) — tier membership alone is too weak a trigger. |
+
+A and B coincide only because every windows-hint test currently pulled in by a rule happens to be in
+the tier except one (`tests/normalize-path-in-content.rule.test.cjs`, which has zero signals). B is
+shipped because that coincidence is not an invariant.
+
+Live effect is deliberately small: of the six rules that fire, four already set `fullMatrix: true`
+(no-op), `inert CI`'s escalation is overridden downstream by the inert-CI reset, and exactly one —
+`portability lint rules (ADR-1703)` — genuinely changes behavior.
+
 `test-conformance` becomes the **sole** Windows selector, matching how it already is the sole macOS
 selector.
 
@@ -117,7 +136,7 @@ selector.
 
 `process-seam-subprocess` and `hardcoded-path-vs-path-call` are deleted from `CATEGORIES`.
 `hardcoded-path-vs-path-call` leaves `NOISY_FOR_SOURCE_REACHABILITY` with it (the set now holds
-`symlink-keyword` alone). Tier: **546 → 254 of 930 (58.7% → 27.3%).**
+`symlink-keyword` alone). Tier, measured on one tree: **547 → 255 of 931 (58.8% → 27.4%)** — 292 files removed, none added.
 
 Measured, the change is surgical: `src/` reachability is **28 → 28, zero files change status**,
 because `hardcoded-path-vs-path-call` was already excluded there and no `src/` file matches the
@@ -130,8 +149,8 @@ denominator**, not a count:
 
 | tier | measured | ceiling |
 |---|---:|---:|
-| Windows (`CONFORMANCE_TIER_FILES`) | 27.3% | **33%** |
-| macOS (`MACOS_CONFORMANCE_TIER_FILES`) | 21.1% | **25%** |
+| Windows (`CONFORMANCE_TIER_FILES`) | 27.4% | **33%** |
+| macOS (`MACOS_CONFORMANCE_TIER_FILES`) | 21.2% | **25%** |
 
 An absolute count goes stale as the suite grows and silently stops binding; the property that
 matters — "a tier, not the suite" — is inherently proportional. The ceiling is deliberately *not*
@@ -169,11 +188,17 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   mistake a dead output for a live one.
 - ADR-4593's **decision is unaffected**: `MACOS_CATEGORIES` is a separate array, `chmod-mode-bit`
   and `symlink-keyword` keep their recorded rationale and their definitions, and the macOS tier
-  stays at 196 files — the regenerated `macos-conformance-tier.generated.cjs` is byte-identical.
+  is unchanged — the regenerated `macos-conformance-tier.generated.cjs` is byte-identical to the one
+  on `next` (`git diff` reports zero changed lines).
   Its five prose citations of the 546 figure are **left as written**: they were accurate on
   2026-09-10 and an ADR is a dated record, not a live reference page. ADR-4593 instead carries a
   short amendment note pointing here, so a reader who arrives at the 546 figure learns it has since
   moved without the original reasoning being rewritten underneath them.
+
+  Neither tier's size is asserted as a literal count anywhere in the test suite: the ceilings are
+  ratios against a live denominator, and the macOS list is pinned by comparing the committed file to
+  a fresh classification of the live tree. A count hardcoded in a test is a failure scheduled for
+  whenever the suite next grows — which is exactly how the first draft of this work broke.
 
 ### Risk accepted, and why it is not a rerun of #962
 

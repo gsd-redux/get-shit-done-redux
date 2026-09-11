@@ -37,12 +37,23 @@
  *
  * That stance is a correct per-file tiebreak, but proved wrong in aggregate
  * (#4641): applied to two categories that matched the house test idiom
- * rather than a genuine platform signal, it produced a 546/930 (58.7%)
- * Windows "tier" — most of the suite. Measured per-category UNIQUE (sole-
- * signal, i.e. the file would have been excluded without it) contribution:
- * `process-seam-subprocess` 118 files, `hardcoded-path-vs-path-call` 108
- * files, every other category 41 files COMBINED. Both were removed outright
- * from CATEGORIES; post-removal the tier is 254/930 (27.3%). See
+ * rather than a genuine platform signal, it produced a Windows "tier" of
+ * 547 of 931 eligible unit-suite files (58.8%, measured 2026-09-11) — most
+ * of the suite. Measured per-category UNIQUE (sole-signal, i.e. the file
+ * would have been excluded without it) contribution as of that same
+ * measurement: `process-seam-subprocess` 118 files, `hardcoded-path-vs-
+ * path-call` 108 files, every other category 41 files COMBINED. Both were
+ * removed outright from CATEGORIES; the same-tree, same-day recount put
+ * the tier at 255 of 931 (27.4%) — exactly 292 entries removed from the
+ * committed list, none added. The macOS tier was unaffected by this change
+ * (a diff of macos-conformance-tier.generated.cjs across the same removal
+ * showed zero changed lines). None of these counts is asserted as a
+ * literal anywhere in the test suite: the ceilings this generator enforces
+ * are ratios against a live denominator (the current eligible-file count),
+ * and the committed lists are pinned by comparing against a fresh
+ * classification of the live tree, not against a hardcoded number —
+ * deliberately, since a hardcoded count in a test is a failure scheduled
+ * for the next time the suite grows. See
  * docs/adr/4641-windows-selector-consolidation.md for the full rationale.
  *
  * KNOWN LIMIT, disclosed deliberately: this is a STATIC content classifier,
