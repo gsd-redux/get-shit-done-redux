@@ -3411,6 +3411,63 @@ describe('#3468 matrix C1/C2: identity across the refactor — pinned literal ou
     assert.equal(rMilestone.postFm.milestone_name, GOOD);
   });
 
+  test('#4316: preserves the curated milestone pair only for the placeholder grammar', () => {
+    const curated = { milestone: 'v7.2', milestone_name: 'Curated Release Name' };
+    const cases = [
+      {
+        label: 'bare placeholder',
+        derivedName: 'milestone',
+        expectCurated: true,
+      },
+      {
+        label: 'ACTIVE decoration',
+        derivedName: 'milestone (ACTIVE — implementation underway)',
+        expectCurated: true,
+      },
+      {
+        label: 'dated CLOSED decoration',
+        derivedName: 'milestone (CLOSED 2026-09-10 — release complete)',
+        expectCurated: true,
+      },
+      {
+        label: 'genuine derived milestone name',
+        derivedName: 'milestone-driven planning',
+        expectCurated: false,
+      },
+      {
+        label: 'lowercase status decoration',
+        derivedName: 'milestone (active — implementation underway)',
+        expectCurated: false,
+      },
+      {
+        label: 'empty decoration detail',
+        derivedName: 'milestone (ACTIVE — )',
+        expectCurated: false,
+      },
+    ];
+
+    for (const { label, derivedName, expectCurated } of cases) {
+      const derivedVersion = 'v9.0';
+      const r = applyStatePreservation({
+        transaction: openStateTransaction({
+          snapshot: curated,
+          resync: true,
+          bodyDeltas: neutralBodyDeltas(),
+        }),
+        postFm: { milestone: derivedVersion, milestone_name: derivedName },
+        ...dedicatedNoop,
+      });
+
+      if (expectCurated) {
+        assert.equal(r.postFm.milestone_name, curated.milestone_name, `${label}: curated name must survive`);
+        assert.equal(r.postFm.milestone, curated.milestone, `${label}: curated version must stay paired`);
+      } else {
+        assert.equal(r.postFm.milestone_name, derivedName, `${label}: real derived name must remain authoritative`);
+        assert.equal(r.postFm.milestone, derivedVersion, `${label}: real derived version must remain paired`);
+      }
+    }
+  });
+
   test('C1: derive-classified fields pass through untouched regardless of snapshot (pinned)', () => {
     for (const field of ['gsd_state_version', 'last_updated', 'last_activity', 'state_head']) {
       const r = applyStatePreservation({

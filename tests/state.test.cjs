@@ -14749,6 +14749,93 @@ describe('#948: syncStateFrontmatter preserves milestone_name when derived is te
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// #4316: state-writing commands preserve a decorated milestone placeholder
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('#4316: shared state writes preserve a curated milestone pair for decorated placeholders', () => {
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = createTempProject();
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function writeDecoratedMilestoneFixture(status) {
+    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    fs.writeFileSync(statePath, [
+      '---',
+      'gsd_state_version: 1.0',
+      'milestone: v7.2',
+      'milestone_name: Curated Release Name',
+      'status: planning',
+      '---',
+      '',
+      '# Project State',
+      '',
+      '## Current Position',
+      '',
+      'Phase: 1 of 1',
+      'Plan: 1 of 1',
+      '**Status:** Planning',
+      'Last activity: 2026-09-10 — planning',
+      '',
+      '## Session Continuity',
+      '',
+      '**Last session:** 2026-09-10T00:00:00.000Z',
+      '**Stopped at:** None',
+      '**Resume file:** None',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), [
+      '# Roadmap',
+      '',
+      `- 🚧 v7.2 milestone (${status} — placeholder detail)`,
+      '',
+      '### Phase 1: Build',
+      '',
+      'Implement the release.',
+      '',
+    ].join('\n'));
+    return statePath;
+  }
+
+  for (const { command, label } of [
+    {
+      label: 'record-session',
+      command: 'state record-session --stopped-at "Phase 1 implementation"',
+    },
+    {
+      label: 'planned-phase',
+      command: 'state planned-phase --phase 1 --name Build --plans 1',
+    },
+  ]) {
+    for (const { label: statusLabel, value: status } of [
+      { label: 'ACTIVE', value: 'ACTIVE' },
+      { label: 'dated CLOSED', value: 'CLOSED 2026-09-10' },
+    ]) {
+      test(`${label} preserves the curated pair for a ${statusLabel} placeholder decoration`, () => {
+        const statePath = writeDecoratedMilestoneFixture(status);
+
+        const result = runGsdTools(command, tmpDir, {
+          GSD_TEST_MODE: '1',
+          GSD_NOW_MS: String(Date.parse('2026-09-10T12:00:00.000Z')),
+        });
+        assert.ok(result.success, `${label} should succeed: ${result.error}`);
+
+        const frontmatter = parseFrontmatter(fs.readFileSync(statePath, 'utf-8'));
+        assert.equal(frontmatter['milestone_name'], 'Curated Release Name',
+          `${label} must retain the curated name for ${statusLabel}`);
+        assert.equal(frontmatter['milestone'], 'v7.2',
+          `${label} must retain the curated version paired with the name for ${statusLabel}`);
+      });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bug #944: record-session with no session section must persist supplied values
 // ─────────────────────────────────────────────────────────────────────────────
 

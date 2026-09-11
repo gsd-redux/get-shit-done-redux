@@ -889,10 +889,13 @@ function applyPreserveAlways(field: string, cls: FieldClassification, ctx: Prese
  */
 function applyPreserveIfPlaceholder(_field: string, _cls: FieldClassification, ctx: PreservationCtx): void {
   const MILESTONE_PLACEHOLDER = 'milestone';
+  const MILESTONE_PLACEHOLDER_DECORATION =
+    /^milestone \([A-Z]+(?: [A-Z0-9.-]+)* — [^()\r\n]*[^\s()\r\n][^()\r\n]*\)$/;
   const derivedName = ctx.postFm['milestone_name'];
   const derivedLooksLikeName = typeof derivedName === 'string'
     && derivedName.length > 0
     && derivedName !== MILESTONE_PLACEHOLDER
+    && !MILESTONE_PLACEHOLDER_DECORATION.test(derivedName)
     && !/^[\s—–:-]/.test(derivedName);
   const snapshotName = ctx.snapshot['milestone_name'];
   const snapshotNameIsReal = typeof snapshotName === 'string'
