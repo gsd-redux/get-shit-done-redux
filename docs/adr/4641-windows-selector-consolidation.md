@@ -189,6 +189,26 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   because many gates are path-scoped and this change touches a broader path set than #4640. The
   like-for-like figure is the `test.yml` job count and its non-Linux portion, which is what the
   epic's goal was about.
+
+  **Wall-clock, measured on both runs — and the honest read is that this is a correctness win more
+  than a speed one:**
+
+  | conformance job | #4640 (547 files) | #4643 (265 files) | |
+  |---|---:|---:|---|
+  | windows shard 1/3 | 29m47s | **21m12s** | -29% |
+  | windows shard 2/3 | 29m00s | **26m21s** | -9% |
+  | windows shard 3/3 | **40m24s** | **31m27s** | -22% |
+  | macOS | 17m48s | 21m02s | +18% |
+
+  File count fell 52% but wall-clock only 9-29%, because the files removed were the *cheap static*
+  ones — the tier that remains is concentrated in genuinely expensive spawn-heavy work, which is
+  exactly what it should contain. Do not expect a future narrowing to buy time proportional to file
+  count. The macOS figure moved the wrong way while its tier was **unchanged at 197 files**, which
+  fixes it as runner variance rather than an effect of this change, and is a caution against reading
+  any single duration as signal.
+
+  The load-bearing number is shard 3/3: it ran at **40m24s against a 45-minute cap**, 90% of the
+  cliff that #869 and #3057 were both filed about. Pulling it to 31m27s restores real headroom.
 - **282 test files leave real-OS Windows execution** — 292 dropped when the two detectors were
   removed, 10 restored (9 by the narrow `shell-interpreter-spawn` replacement, 1 by `ALWAYS_REAL_OS`).
   This is a real coverage change, not a refactor. It is defensible because every file that stays out
@@ -290,8 +310,10 @@ why this narrowing rests on an enforced invariant rather than on optimism.
   accident preserved.
 - **Narrow `hardcoded-path-vs-path-call` to same-line proximity rather than deleting it.** Rejected:
   ADR-1703's Linux-runnable rules already enforce the class, so real-OS execution buys nothing.
-- **Also drop `symlink-keyword`** (would give 228 rather than 254). Rejected: worth 6 unique files,
-  and ADR-4593 reuses it in `MACOS_CATEGORIES` with recorded rationale.
+- **Also drop `symlink-keyword`** (measured at the time as 228 rather than 254, before the
+  `shell-interpreter-spawn` replacement and `ALWAYS_REAL_OS` took the tier to its final 265).
+  Rejected: worth 6 unique files, and ADR-4593 reuses it in `MACOS_CATEGORIES` with recorded
+  rationale.
 - **Narrow `chmod-mode-bit`'s bare-octal arm.** #4641's text named this as a co-driver. Measurement
   says otherwise: 51 files match only via the bare-octal arm, but for **4** is `chmod-mode-bit` the
   sole signal. Changing it would invalidate ADR-4593's measured macOS table for a 4-file benefit.
