@@ -109,6 +109,7 @@ module.exports = {
   "tests/lint-docs-command-form.test.cjs",
   "tests/lint-workflow-shellcheck-fetch.test.cjs",
   "tests/list-seeds.test.cjs",
+  "tests/loop-render-hooks.test.cjs",
   "tests/markdown-sectionizer.test.cjs",
   "tests/mcp-catalog.test.cjs",
   "tests/milestone-archive.test.cjs",
