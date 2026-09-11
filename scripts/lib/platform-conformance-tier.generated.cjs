@@ -158,6 +158,7 @@ module.exports = {
   "tests/estimate-calibrate.test.cjs",
   "tests/estimate-loop-convergence.test.cjs",
   "tests/execute-mvp-tdd-gate.test.cjs",
+  "tests/execute-phase-decimal-arithmetic.test.cjs",
   "tests/execute-phase-wave.test.cjs",
   "tests/execute-phase-worktree-guard.test.cjs",
   "tests/execute-plan-update-codebase-map-diff-base.test.cjs",

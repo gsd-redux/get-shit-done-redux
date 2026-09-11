@@ -61,6 +61,7 @@ module.exports = {
   "tests/effort-sync-installed-runtime.test.cjs",
   "tests/emitted-attribution.test.cjs",
   "tests/ensure-runtime-build.test.cjs",
+  "tests/execute-phase-decimal-arithmetic.test.cjs",
   "tests/executed-plan.test.cjs",
   "tests/executor-mvp-tdd-section.test.cjs",
   "tests/external-job.test.cjs",
