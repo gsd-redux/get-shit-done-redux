@@ -18,6 +18,7 @@ const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 const fc = require('./helpers/fast-check-setup.cjs');
 const { gitOrThrow, throwIfFailed } = require('./helpers/git-fixture.cjs');
 const { runNode } = require('./helpers/process-seam.cjs');
+const { GIT_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 describe('history-digest command', () => {
   let tmpDir;
@@ -3199,7 +3200,7 @@ describe('commit-docs-guard hook script (#3588 A1-A5)', () => {
     const probe = spawnSync('git', ['config', '--get', 'core.hooksPath'], {
       cwd: tmpDir,
       encoding: 'utf-8',
-      timeout: 15_000,
+      timeout: GIT_TIMEOUT_MS,
     });
     assert.notEqual(probe.status, 0, `a child git must not see a host core.hooksPath; got: ${probe.stdout}`);
     assert.ok(fs.existsSync(hookPath), 'the beforeEach enable installed the hook at the repo-local default path');
@@ -4322,6 +4323,7 @@ const os = require('node:os');
 const path = require('path');
 const { spawnSync } = require('node:child_process');
 const { cleanup } = require('./helpers.cjs');
+const { GSD_TOOLS_CLI_MODERATE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const COMMAND_ALIASES_FILE = path.join(
@@ -4450,7 +4452,7 @@ function runGsdTools(args, projectDir) {
   return spawnSync(process.execPath, [GSD_TOOLS, ...args], {
     cwd: projectDir,
     encoding: 'utf8',
-    timeout: 30000,
+    timeout: GSD_TOOLS_CLI_MODERATE_TIMEOUT_MS,
     killSignal: 'SIGKILL',
   });
 }
