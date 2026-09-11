@@ -24,7 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
-const { findPhaseIdRegexDrift, findBracketGrammarDrift, scanRepo } = require(
+const { findPhaseIdRegexDrift, findBracketGrammarDrift, scanRepo, scanMarkdownShellArith } = require(
   path.join(ROOT, 'scripts', 'lint-phase-id-drift.cjs'),
 );
 const phaseId = require(path.join(ROOT, 'gsd-core', 'bin', 'lib', 'phase-id.cjs'));
@@ -264,7 +264,7 @@ describe('#2761 M3 bracket grammar: one owner, byte-identical to the sites it re
 });
 
 describe('#2128 phase-id drift scanner: the live repo is clean', () => {
-  test('scanRepo finds zero unsanctioned re-derivations (token AND bracket)', () => {
+  test('scanRepo finds zero unsanctioned re-derivations (token, bracket, and name-validity)', () => {
     const violations = scanRepo(ROOT);
     assert.deepEqual(
       violations,
@@ -296,6 +296,21 @@ describe('#2128 phase-id drift scanner: the live repo is clean', () => {
       cleanup(tmp);
     }
   });
+
+  test(
+    "#4619 shell-arith violations are known and tracked separately (characterization, not this PR's scope)",
+    () => {
+      const violations = scanMarkdownShellArith(ROOT);
+      assert.equal(
+        violations.length,
+        7,
+        'expected exactly the 7 known #4619 sites (workflows/execute-phase.md x4, ' +
+          'workflows/execute-phase/steps/completion-reconciliation.md x2, references/tdd.md x1) — ' +
+          'if this count changed, either #4619 was fixed (great — update/remove this pin) or a NEW ' +
+          'unrelated shell-arith site was introduced (investigate before adjusting the number)',
+      );
+    },
+  );
 });
 
 describe('#2128 phase-id single-owner identity guard', () => {
