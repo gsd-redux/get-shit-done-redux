@@ -23,7 +23,7 @@ import coreUtilsMod = require('./core-utils.cjs');
 const { toPosixPath, generateSlugInternal, extractOneLinerFromBody } = coreUtilsMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseIdMod = require('./phase-id.cjs');
-const { normalizePhaseName, comparePhaseNum, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE, isSentinelPhaseId } = phaseIdMod;
+const { normalizePhaseName, comparePhaseNum, extractPhaseToken, PHASE_NUMBER_TOKEN_SOURCE, isSentinelPhaseId, renderPhaseBranchName } = phaseIdMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseLocatorMod = require('./phase-locator.cjs');
 const { getArchivedPhaseDirs, findPhaseInternal, listMilestonePhaseDirs } = phaseLocatorMod;
@@ -1648,9 +1648,15 @@ function cmdCommit(cwd: string, message: string | undefined, files: string[] | u
       if (phaseNum && !isSentinelPhaseId(phaseNum)) {
         const phaseInfo = findPhaseInternal(cwd, phaseNum) as Record<string, unknown> | null;
         if (phaseInfo) {
-          branchName = (config['phase_branch_template'] as string)
-            .replace('{phase}', normalizePhaseName(phaseInfo['phase_number']))
-            .replace('{slug}', (phaseInfo['phase_slug'] as string) || 'phase');
+          // #4126: shared with init.cts's cmdInitExecutePhase branch_name field
+          // via the one canonical renderer (src/phase-id.cts) so an undeliverable
+          // phase_slug degrades identically at both call sites instead of each
+          // independently substituting the literal word 'phase'.
+          branchName = renderPhaseBranchName(
+            config['phase_branch_template'] as string,
+            phaseInfo['phase_number'],
+            phaseInfo['phase_slug'],
+          );
         }
       }
     } else if (branchingStrategy === 'milestone') {

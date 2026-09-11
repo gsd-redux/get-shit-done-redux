@@ -97,7 +97,7 @@ const {
   extractCurrentMilestone,
 } = roadmapParser;
 const { pathExistsInternal, generateSlugInternal, toPosixPath } = coreUtils;
-const { comparePhaseNum, normalizePhaseName, matchPhaseDirs, stripProjectCodePrefix, PHASE_NUMBER_TOKEN_SOURCE, isForeignPrefixedPhaseQuery, isSentinelPhaseId, extractPhaseToken, scopeToPhase } = phaseId;
+const { comparePhaseNum, normalizePhaseName, matchPhaseDirs, stripProjectCodePrefix, PHASE_NUMBER_TOKEN_SOURCE, isForeignPrefixedPhaseQuery, isSentinelPhaseId, extractPhaseToken, scopeToPhase, renderPhaseBranchName } = phaseId;
 const { pruneOrphanedWorktrees } = worktreeSafety;
 
 const {
@@ -989,10 +989,11 @@ function cmdInitExecutePhase(
 
     branch_name:
       config.branching_strategy === 'phase' && phaseInfo
-        ? (config.phase_branch_template as string)
-            .replace('{project}', (config.project_code as string) || '')
-            .replace('{phase}', normalizePhaseName(phaseInfo['phase_number']))
-            .replace('{slug}', (phaseInfo['phase_slug'] as string) || 'phase')
+        ? renderPhaseBranchName(
+            (config.phase_branch_template as string).replace('{project}', (config.project_code as string) || ''),
+            phaseInfo['phase_number'],
+            phaseInfo['phase_slug'],
+          )
         : config.branching_strategy === 'milestone'
           ? (config.milestone_branch_template as string)
               .replace('{milestone}', (milestone['version'] as string | undefined) ?? '')

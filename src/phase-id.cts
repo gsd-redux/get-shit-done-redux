@@ -1471,6 +1471,65 @@ function isForeignPrefixedPhaseQuery(phase: unknown, projectCode: unknown): bool
  * form so a canonical heading (`### Phase 117:`) is preferred over a drifted
  * prefixed one (`### Phase MANIFOLD-117:`) when both exist in one ROADMAP.
  */
+// Separator characters a branch-name template may plausibly use to join
+// `{slug}` to its neighbours — the four this repo's shipped templates and
+// docs/CONFIGURATION.md's custom-template examples use (`/`, `-`, `_`, `.`).
+const BRANCH_TEMPLATE_SEP_RE = /[-_./]/;
+const BRANCH_TEMPLATE_SEP_RUN_RE = /([-_./])\1+/g;
+const BRANCH_TEMPLATE_EDGE_SEP_RE = /^[-_./]+|[-_./]+$/g;
+
+/**
+ * #4126: the ONE branch-name-template renderer for the `phase` branching
+ * strategy, shared by `cmdCommit` (src/commands.cts) and
+ * `cmdInitExecutePhase` (src/init.cts) so the two call sites cannot diverge
+ * on how an undeliverable `phaseSlug` degrades (they previously each
+ * independently substituted the literal word `phase`, producing a
+ * non-identifying branch name like `gsd/phase-08-phase` that contradicts an
+ * honestly-reported `phase_slug: null`).
+ *
+ * `{project}` is deliberately NOT handled here — init.cts substitutes it
+ * separately, before calling this, because it is a config-level field with
+ * its own fallback (`''`), not a phase-derived one.
+ *
+ * When `phaseSlug` is a non-empty string, `{slug}` substitutes normally
+ * (unchanged from prior behavior). When it is empty or not a string (e.g.
+ * `null`, `undefined`, a number), the `{slug}` token is DROPPED — along with
+ * one adjacent separator character — rather than replaced with a placeholder
+ * word: a dropped token keeps the branch name honest about what it does not
+ * know, where a placeholder reads as a real (but wrong) name. The result is
+ * always a syntactically plausible git-ref fragment: no leading, trailing, or
+ * doubled separator, for both the shipped default template
+ * (`gsd/phase-{phase}-{slug}`) and a differently-shaped custom one (this
+ * field is user-configurable per docs/CONFIGURATION.md).
+ */
+function renderPhaseBranchName(template: string, phaseNumber: unknown, phaseSlug: unknown): string | null {
+  const withPhase = template.replace('{phase}', normalizePhaseName(phaseNumber));
+  const slug = typeof phaseSlug === 'string' ? phaseSlug : '';
+  if (slug) return withPhase.replace('{slug}', slug);
+
+  const at = withPhase.indexOf('{slug}');
+  if (at === -1) return withPhase;
+
+  let before = withPhase.slice(0, at);
+  let after = withPhase.slice(at + '{slug}'.length);
+  // Drop exactly ONE adjacent separator — preferring the one immediately
+  // before the token — so `a-{slug}` and `{slug}-a` both degrade to `a`
+  // rather than leaving a dangling `a-` / `-a`.
+  if (before && BRANCH_TEMPLATE_SEP_RE.test(before[before.length - 1])) {
+    before = before.slice(0, -1);
+  } else if (after && BRANCH_TEMPLATE_SEP_RE.test(after[0])) {
+    after = after.slice(1);
+  }
+
+  // Collapse any doubled separator the drop can leave behind (e.g. a
+  // `feature//{slug}` template dropping to `feature/`→`feature`), then trim
+  // a resulting leading/trailing separator — valid for the shipped default
+  // template AND any user-configured shape, not just the one this repo ships.
+  const joined = before + after;
+  const collapsed = joined.replace(BRANCH_TEMPLATE_SEP_RUN_RE, '$1').replace(BRANCH_TEMPLATE_EDGE_SEP_RE, '');
+  return collapsed || null;
+}
+
 function roadmapPhaseLookupSources(phaseNum: unknown): string[] {
   const sources: string[] = [];
   const exactSource = phaseMarkdownRegexSourceExact(phaseNum);
@@ -1532,4 +1591,5 @@ export = {
   stripConfiguredProjectCodePrefix,
   isForeignPrefixedPhaseQuery,
   roadmapPhaseLookupSources,
+  renderPhaseBranchName,
 };
