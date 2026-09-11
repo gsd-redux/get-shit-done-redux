@@ -33,9 +33,11 @@ windows` shards from both sides. Counting every non-Linux job, the epic moved 9 
 ### The tier was 59% of the suite
 
 `node scripts/gen-platform-conformance-tier.cjs` reported **546 of 930** eligible unit-suite files
-(58.7%) when this was diagnosed. Measured on this PR's own rebased tree (931 eligible, after #4253
-added a test file) the same comparison is **547 → 255**: the committed list loses exactly 292
-entries and gains none. Measured per-category contribution, where `UNIQUE` is the count of files for which that
+(58.7%) when this was diagnosed. Measured on the tree this PR actually ships against (**932** eligible,
+after #4253 and #4644 landed on `next` mid-flight) the same comparison is **548 → 257** by detector
+removal alone. Absolute counts drift every time `next` gains a test file; the **percentages did not
+move at all** across three rebases (58.8% → 28.5%), which is the whole reason the ceilings are
+ratios. Measured per-category contribution, where `UNIQUE` is the count of files for which that
 category is the **sole** signal — i.e. the marginal cost of keeping it:
 
 | category | total | UNIQUE |
@@ -140,10 +142,10 @@ selector.
 
 `process-seam-subprocess` and `hardcoded-path-vs-path-call` are deleted from `CATEGORIES`.
 `hardcoded-path-vs-path-call` leaves `NOISY_FOR_SOURCE_REACHABILITY` with it (the set now holds
-`symlink-keyword` alone). Tier, measured on one tree: **547 → 255 of 931 (58.8% → 27.4%)** by removing the two detectors, then
-**255 → 264 (28.4%)** once the narrow `shell-interpreter-spawn` replacement added 9 genuinely
-shell-spawning tests back, and **264 → 265 (28.5%)** once `ALWAYS_REAL_OS` pinned one further file
-(see Consequences). Net: 282 files removed, 10 of the original drop-outs restored.
+`symlink-keyword` alone). Tier, all measured on one tree (932 eligible): **548 → 257 (58.8% → 27.6%)**
+by removing the two detectors, then **257 → 266 (28.5%)** once the narrow `shell-interpreter-spawn`
+replacement added 9 genuinely shell-spawning tests back. Net: **282 files removed, 9 restored**.
+`ALWAYS_REAL_OS` currently adds **0** — see Consequences for why it is still there.
 
 Measured, the change is surgical: `src/` reachability is **28 → 28, zero files change status**,
 because `hardcoded-path-vs-path-call` was already excluded there and no `src/` file matches the
@@ -177,7 +179,7 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   | jobs in the completed `test.yml` run | 21 | **17** |
   | non-Linux jobs | 7 | **4** |
   | `test` job | 4 ubuntu + 3 windows | 4 ubuntu, **0 windows** |
-  | conformance tier size | 547 files | **265 files** |
+  | conformance tier size | 548 files | **266 files** |
 
   Both job totals are counted the same way — every job in the *completed* run, which includes the
   post-test `Coverage gate` and baseline-publisher jobs. An earlier draft of this table compared
@@ -193,7 +195,7 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   **Wall-clock, measured on both runs — and the honest read is that this is a correctness win more
   than a speed one:**
 
-  | conformance job | #4640 (547 files) | #4643 (265 files) | |
+  | conformance job | #4640 (548-file tier) | #4643 (266-file tier) | |
   |---|---:|---:|---|
   | windows shard 1/3 | 29m47s | **21m12s** | -29% |
   | windows shard 2/3 | 29m00s | **26m21s** | -9% |
@@ -203,20 +205,21 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   File count fell 52% but wall-clock only 9-29%, because the files removed were the *cheap static*
   ones — the tier that remains is concentrated in genuinely expensive spawn-heavy work, which is
   exactly what it should contain. Do not expect a future narrowing to buy time proportional to file
-  count. The macOS figure moved the wrong way while its tier was **unchanged at 197 files**, which
+  count. The macOS figure moved the wrong way while its tier was **unchanged by this PR** (198 files;
+  it tracks `next`'s test count, not this change), which
   fixes it as runner variance rather than an effect of this change, and is a caution against reading
   any single duration as signal.
 
   The load-bearing number is shard 3/3: it ran at **40m24s against a 45-minute cap**, 90% of the
   cliff that #869 and #3057 were both filed about. Pulling it to 31m27s restores real headroom.
-- **282 test files leave real-OS Windows execution** — 292 dropped when the two detectors were
-  removed, 10 restored (9 by the narrow `shell-interpreter-spawn` replacement, 1 by `ALWAYS_REAL_OS`).
+- **282 test files leave real-OS Windows execution** — 291 dropped when the two detectors were
+  removed, 9 restored by the narrow `shell-interpreter-spawn` replacement.
   This is a real coverage change, not a refactor. It is defensible because every file that stays out
   does so by losing a signal that was never a platform signal — each remains covered by the Linux
   run, and the files that genuinely spawn a real binary are untouched or restored
   (`raw-child-process`, 96 files; `shell-interpreter-spawn`, 33).
 
-  The drop-out set was audited rather than assumed. Of the 292 initially dropped, **14** had a filename suggesting
+  The drop-out set was audited rather than assumed. Of those initially dropped, **14** had a filename suggesting
   platform relevance (`/windows|win32|shell|path|platform|posix|crlf|symlink|exec|spawn|subprocess/i`),
   and each was inspected. Six carry an explicit `allow-test-rule: source-text-is-the-product` or
   `structural-regression-guard` marker; the rest were read individually.
@@ -241,6 +244,17 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   `runHook`/`runGit` spawn real binaries. Conflating the two is what made the original
   `process-seam-subprocess` detector look purely noisy: it was 99% noise wrapping a real signal.
 
+  **On `ALWAYS_REAL_OS` adding zero today — disclosed, not hidden.** The allowlist holds one entry,
+  `tests/external-descriptor-confinement.test.cjs`, and it currently contributes **0 files**, because
+  this PR's own win32 test cases introduced the literal `win32` into that file and it now classifies
+  in on content via `win32-darwin-literal`. A future reader measuring the allowlist's marginal
+  contribution will get zero and may conclude the mechanism is dead. It is not, and the entry stays:
+  the file's real-OS need is a property of the CODE UNDER TEST — `isPathConfined` reads the ambient
+  `path` module — not of the test's text, and the text that currently saves it is incidental. Rewrite
+  those cases to use a helper without the literal and the file drops out silently. The pin exists
+  precisely for that, and the tests assert every entry names a file that exists so a stale entry
+  fails loudly rather than rotting.
+
   The fix is a narrow replacement category rather than restoring the blanket one:
 
   ```js
@@ -249,8 +263,7 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   ```
 
   Measured 2026-09-11: 33 eligible files match, **9** of them were outside the tier and are added
-  back, taking it from 255 to **264 of 931 (27.4% → 28.4%)** — and to **265 (28.5%)** once
-  `ALWAYS_REAL_OS` pins one further file, which is the committed total. Still under the 33% ceiling. Every one
+  back, taking it from 257 to **266 of 932 (27.6% → 28.5%)**, which is the committed total. Still under the 33% ceiling. Every one
   of the 9 was confirmed by reading the matching source line — all are live `interpreter:` options on
   real `runHook`/`runHookSeam` calls, zero comment or fixture matches. Two narrower alternatives
   (`runGit(` alone; non-node `spawnSeam(`) were measured and rejected: each adds 9 files but **misses
@@ -311,7 +324,7 @@ why this narrowing rests on an enforced invariant rather than on optimism.
 - **Narrow `hardcoded-path-vs-path-call` to same-line proximity rather than deleting it.** Rejected:
   ADR-1703's Linux-runnable rules already enforce the class, so real-OS execution buys nothing.
 - **Also drop `symlink-keyword`** (measured at the time as 228 rather than 254, before the
-  `shell-interpreter-spawn` replacement and `ALWAYS_REAL_OS` took the tier to its final 265).
+  `shell-interpreter-spawn` replacement took the tier to its final 266).
   Rejected: worth 6 unique files, and ADR-4593 reuses it in `MACOS_CATEGORIES` with recorded
   rationale.
 - **Narrow `chmod-mode-bit`'s bare-octal arm.** #4641's text named this as a co-driver. Measurement
@@ -325,7 +338,7 @@ why this narrowing rests on an enforced invariant rather than on optimism.
   can be satisfied by inflating the *denominator*, so adding OS-agnostic tests loosens it without
   narrowing the tier. Concentration looked like the harder-to-fake companion, since the original
   defect was precisely one detector carrying half the tier. **Measured, and rejected on the numbers.**
-  Post-fix the peak sole-signal share is `raw-child-process` at 53/265 = **20.0%**, against the two
+  Post-fix the peak sole-signal share is `raw-child-process` at ~53/266 = **~20%**, against the two
   historic offenders at 21.6% (`process-seam-subprocess`) and 19.8% (`hardcoded-path-vs-path-call`).
   Any threshold above 20% would have missed the original defect; any threshold below it fails today
   on a category that is entirely legitimate — a test that spawns a real subprocess genuinely needs a
