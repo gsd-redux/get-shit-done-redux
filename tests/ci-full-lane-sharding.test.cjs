@@ -73,14 +73,39 @@ function isCompleteShardSet(specs) {
   return seen.size === total && [...seen].every((i) => i >= 1 && i <= total);
 }
 
+test('the test job has no windows lane; test-conformance is the sole Windows selector (#4641)', () => {
+  const workflow = loadWorkflow('test.yml');
+  const testInclude = workflow.jobs.test.strategy.matrix.include;
+  const testWindowsEntries = testInclude.filter((e) => e.os === 'windows-latest');
+  assert.equal(
+    testWindowsEntries.length, 0,
+    `the \`test\` job's matrix.include still has ${testWindowsEntries.length} windows-latest `
+    + `entr${testWindowsEntries.length === 1 ? 'y' : 'ies'} (${JSON.stringify(testWindowsEntries)}). `
+    + '#4641 deletes the `test` job\'s windows lane; test-conformance is the sole Windows selector.',
+  );
+
+  const conformanceInclude = workflow.jobs['test-conformance'].strategy.matrix.include;
+  const conformanceWindowsEntries = conformanceInclude.filter((e) => e.os === 'windows-latest');
+  const conformanceMacosEntries = conformanceInclude.filter((e) => e.os === 'macos-latest');
+  assert.equal(
+    conformanceWindowsEntries.length, 3,
+    `expected exactly 3 windows-latest entries in test-conformance, got ${conformanceWindowsEntries.length}: `
+    + JSON.stringify(conformanceWindowsEntries),
+  );
+  assert.equal(
+    conformanceMacosEntries.length, 1,
+    `expected exactly 1 macos-latest entry in test-conformance, got ${conformanceMacosEntries.length}: `
+    + JSON.stringify(conformanceMacosEntries),
+  );
+});
+
 test('the full test lane is sharded and complete (#2952)', async (t) => {
   const workflow = loadWorkflow('test.yml');
   const include = workflow.jobs.test.strategy.matrix.include;
   const fullLanes = include.filter((e) => e.scope === 'full');
-  const windowsLanes = include.filter((e) => e.scope === 'windows');
-  // The only lane in this job with no shard is `scope: targeted` — the fast,
-  // single-runner default lane. Both `full` and `windows` are sharded.
-  const shardedScopes = { full: fullLanes, windows: windowsLanes };
+  // #4641: the `test` job's `scope: windows` lane is deleted — there is no
+  // longer a second sharded scope in this job to pin alongside `full`.
+  const shardedScopes = { full: fullLanes };
 
   for (const [scope, lanes] of Object.entries(shardedScopes)) {
     await t.test(`the \`scope: ${scope}\` lane is actually sharded, not a single runner`, () => {
@@ -112,12 +137,13 @@ test('the full test lane is sharded and complete (#2952)', async (t) => {
   }
 
   await t.test('no other lane is sharded', () => {
-    for (const lane of include.filter((e) => e.scope !== 'full' && e.scope !== 'windows')) {
+    // #4641: the `test` job's `scope: windows` lane is deleted, so `full` is
+    // the only sharded scope left in this job's matrix.
+    for (const lane of include.filter((e) => e.scope !== 'full')) {
       assert.equal(
         lane.shard, undefined,
-        `lane ${JSON.stringify(lane)} declares a shard but is neither \`scope: full\` `
-        + 'nor `scope: windows` — the targeted lane runs a selected file list, not '
-        + 'a partition.',
+        `lane ${JSON.stringify(lane)} declares a shard but is not \`scope: full\` — `
+        + 'the targeted lane runs a selected file list, not a partition.',
       );
     }
   });

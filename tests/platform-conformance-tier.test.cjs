@@ -28,6 +28,9 @@ const {
   NOISY_FOR_SOURCE_REACHABILITY,
   classifyMacosContent,
   classifyMacosTree,
+  CATEGORIES,
+  MACOS_CATEGORIES,
+  walkTestFiles,
 } = require('../scripts/gen-platform-conformance-tier.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -509,5 +512,144 @@ describe('gen-platform-conformance-tier.cjs — real repo tree, macOS target (re
       [],
       'suite-tagged files must never appear in the macOS conformance-tier list either',
     );
+  });
+});
+
+// ─── #4641: narrow the Windows conformance tier away from house-idiom noise ───
+
+describe('conformance tier narrowing (#4641)', () => {
+  test('conformance tier stays a tier, not the suite (#4641)', () => {
+    const realTestsDir = path.join(ROOT, 'tests');
+    const { suiteOf } = require('../scripts/lib/suite-detection.cjs');
+
+    const absoluteFiles = walkTestFiles(realTestsDir);
+    const eligibleFiles = absoluteFiles.filter((absPath) => suiteOf(absPath) === null);
+    const eligibleCount = eligibleFiles.length;
+
+    let tierCount = 0;
+    for (const absPath of eligibleFiles) {
+      const content = fs.readFileSync(absPath, 'utf8');
+      const { needsRealOs } = classifyContent(content);
+      if (needsRealOs) tierCount++;
+    }
+
+    const ratio = tierCount / eligibleCount;
+    assert.ok(
+      ratio <= 0.33,
+      `expected the conformance tier to be at most 33% of eligible unit-suite files, ` +
+        `got ${tierCount}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
+    );
+  });
+
+  test('macos conformance tier stays within its evidence-backed ceiling (#4641)', () => {
+    const realTestsDir = path.join(ROOT, 'tests');
+    const { suiteOf } = require('../scripts/lib/suite-detection.cjs');
+
+    const absoluteFiles = walkTestFiles(realTestsDir);
+    const eligibleFiles = absoluteFiles.filter((absPath) => suiteOf(absPath) === null);
+    const eligibleCount = eligibleFiles.length;
+
+    let tierCount = 0;
+    for (const absPath of eligibleFiles) {
+      const content = fs.readFileSync(absPath, 'utf8');
+      const { needsRealOs } = classifyMacosContent(content);
+      if (needsRealOs) tierCount++;
+    }
+
+    const ratio = tierCount / eligibleCount;
+    assert.ok(
+      ratio <= 0.25,
+      `expected the macOS conformance tier to be at most 25% of eligible unit-suite files, ` +
+        `got ${tierCount}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
+    );
+  });
+
+  test('seam-helper calls are not a platform signal (#4641)', () => {
+    for (const call of ['runNode(', 'runGit(', 'runHook(', 'runGsdTools(', 'gitOrThrow(']) {
+      const fixture = `${call}args);\nassert.equal(result.exitCode, 0);\n`;
+      const { needsRealOs, signals } = classifyContent(fixture);
+      assert.equal(needsRealOs, false, call);
+      assert.deepEqual(signals, [], call);
+    }
+  });
+
+  test('a path call plus a slash literal is not a platform signal (#4641)', () => {
+    const fixture = "const p = path.join(dir, 'sub');\nassert.equal(p, '/tmp/fixture');\n";
+    const { needsRealOs, signals } = classifyContent(fixture);
+    assert.equal(needsRealOs, false);
+    assert.deepEqual(signals, []);
+  });
+
+  test('the two house-idiom detectors are gone (#4641)', () => {
+    const names = CATEGORIES.map((c) => c.name);
+    assert.ok(!names.includes('process-seam-subprocess'), `CATEGORIES still contains process-seam-subprocess: ${JSON.stringify(names)}`);
+    assert.ok(!names.includes('hardcoded-path-vs-path-call'), `CATEGORIES still contains hardcoded-path-vs-path-call: ${JSON.stringify(names)}`);
+  });
+
+  test('genuine platform-conditional content still classifies IN (#4641)', () => {
+    const { needsRealOs, signals } = classifyContent("if (process.platform === 'win32') { doThing(); }");
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('process-platform'));
+  });
+
+  test('seam-BYPASSING spawn still classifies IN (#4641)', () => {
+    const fixture = "const { spawnSync } = require('node:child_process');\nspawnSync('ls', []);";
+    const { needsRealOs, signals } = classifyContent(fixture);
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('raw-child-process'));
+  });
+
+  test('chmodSync content still classifies IN via chmod-mode-bit (#4641)', () => {
+    const { needsRealOs, signals } = classifyContent('fs.chmodSync(target, mode);');
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('chmod-mode-bit'));
+  });
+
+  test('symlinkSync content still classifies IN via symlink-keyword (#4641)', () => {
+    const { needsRealOs, signals } = classifyContent('fs.symlinkSync(target, link);');
+    assert.equal(needsRealOs, true);
+    assert.ok(signals.includes('symlink-keyword'));
+  });
+
+  test('macOS signal set is untouched by the Windows narrowing (#4641)', () => {
+    assert.deepEqual(
+      MACOS_CATEGORIES.map((c) => c.name),
+      ['darwin-literal', 'zsh-dispatch', 'case-sensitivity', 'chmod-mode-bit', 'symlink-keyword'],
+    );
+  });
+
+  test('macOS generated tier is unchanged (#4641)', () => {
+    delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
+    const { MACOS_CONFORMANCE_TIER_FILES } = require(MACOS_GENERATED_PATH);
+    assert.equal(MACOS_CONFORMANCE_TIER_FILES.length, 196);
+  });
+
+  test('named files remain in the Windows tier after narrowing (#4641)', () => {
+    const files = [
+      'tests/shell-command-projection-dispatch.test.cjs',
+      'tests/review-lane-windows-spawn-resolution.test.cjs',
+      'tests/prohibition-enforcement.test.cjs',
+    ];
+    for (const rel of files) {
+      const absPath = path.join(ROOT, rel);
+      const content = fs.readFileSync(absPath, 'utf8');
+      const { needsRealOs } = classifyContent(content);
+      assert.equal(needsRealOs, true, rel);
+    }
+  });
+
+  test('a source-text-analysis test drops out of the tier even when its filename says windows (#4641)', () => {
+    // tests/windows-robustness.test.cjs carries `// allow-test-rule:
+    // source-text-is-the-product` and only ever reads OTHER files' source
+    // text and asserts on it (e.g. `assert.match(region, /windowsHide:\s*true/)`).
+    // Its apparent `spawnSync(` / `execFileSync(` hits are string-literal
+    // search anchors into other files' source, not real subprocess calls —
+    // it spawns nothing itself and is fully Linux-runnable. Despite the
+    // filename, it must classify OUT of the real-OS tier. Do not "fix" this
+    // by re-adding the file to the four-named-files case above.
+    const absPath = path.join(ROOT, 'tests/windows-robustness.test.cjs');
+    const content = fs.readFileSync(absPath, 'utf8');
+    const { needsRealOs } = classifyContent(content);
+    assert.equal(needsRealOs, false, 'tests/windows-robustness.test.cjs');
   });
 });
