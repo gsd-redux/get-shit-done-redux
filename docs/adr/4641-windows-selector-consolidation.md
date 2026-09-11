@@ -168,12 +168,14 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
 - Non-Linux jobs on a `full_matrix` PR: **7 → 4**. Against the true pre-epic baseline of 9, epic
   #4589 plus this ADR deliver **9 → 4 (-56%)**, versus the -33% its closeout claimed against a
   denominator that excluded this lane.
-- **292 test files leave real-OS Windows execution.** This is a real coverage change, not a
-  refactor. It is defensible because every file leaving does so by losing a signal that was never a
-  platform signal — each remains covered by the Linux run, and files that genuinely spawn outside
-  the seam (`raw-child-process`, 96 files) are untouched.
+- **282 test files leave real-OS Windows execution** — 292 dropped when the two detectors were
+  removed, 10 restored (9 by the narrow `shell-interpreter-spawn` replacement, 1 by `ALWAYS_REAL_OS`).
+  This is a real coverage change, not a refactor. It is defensible because every file that stays out
+  does so by losing a signal that was never a platform signal — each remains covered by the Linux
+  run, and the files that genuinely spawn a real binary are untouched or restored
+  (`raw-child-process`, 96 files; `shell-interpreter-spawn`, 33).
 
-  The drop-out set was audited rather than assumed. Of the 292, **14** have a filename suggesting
+  The drop-out set was audited rather than assumed. Of the 292 initially dropped, **14** had a filename suggesting
   platform relevance (`/windows|win32|shell|path|platform|posix|crlf|symlink|exec|spawn|subprocess/i`),
   and each was inspected. Six carry an explicit `allow-test-rule: source-text-is-the-product` or
   `structural-regression-guard` marker; the rest were read individually.
