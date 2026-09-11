@@ -22,6 +22,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { cleanup } = require('./helpers.cjs');
 
 const {
   VENDORED,
@@ -300,7 +301,7 @@ describe('#4573: pinOperatorPrefix / fixRow — mechanical --fix for Dependabot-
     const upstreamAbs = path.join(REPO_ROOT, row.upstreamCjs);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-vendored-deps-fixrow-'));
     const tempVendoredAbs = path.join(tmpDir, 'js-yaml.cjs');
-    t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    t.after(() => cleanup(tmpDir));
 
     const original = fs.readFileSync(upstreamAbs, 'utf8');
     fs.writeFileSync(tempVendoredAbs, `${original}\n// mutated for test\n`);
@@ -324,7 +325,7 @@ describe('#4573: pinOperatorPrefix / fixRow — mechanical --fix for Dependabot-
     const srcTwinAbs = path.join(REPO_ROOT, row.srcTwin);
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-vendored-deps-fixrow-'));
     const tempVendoredAbs = path.join(tmpDir, 'js-yaml.cjs');
-    t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    t.after(() => cleanup(tmpDir));
     const tempRow = { ...row, vendoredCjs: tempVendoredAbs };
 
     const original = fs.readFileSync(srcTwinAbs, 'utf8');
@@ -353,7 +354,7 @@ describe('#4573: pinOperatorPrefix / fixRow — mechanical --fix for Dependabot-
     // fixed for the vendored .cjs.
     const row = jsYamlRow();
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-vendored-deps-fixrow-'));
-    t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+    t.after(() => cleanup(tmpDir));
     const tempVendoredAbs = path.join(tmpDir, 'js-yaml.cjs');
     const tempRow = { ...row, vendoredCjs: tempVendoredAbs };
 
