@@ -55,7 +55,10 @@ const {
 import { escapeRegex } from './pattern.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
 import phaseLocatorMod = require('./phase-locator.cjs');
-const { findPhaseInternal, getArchivedPhaseDirs, listMilestonePhaseDirs } = phaseLocatorMod;
+const { findPhaseInternal, getArchivedPhaseDirs, listMilestonePhaseDirs, listAllPhaseDirs } = phaseLocatorMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
+import planningScopeMod = require('./planning-scope.cjs');
+const { SCOPE } = planningScopeMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- roadmap-parser.cjs is an export= CommonJS module
 import roadmapParserMod = require('./roadmap-parser.cjs');
 const { stripShippedMilestones, extractCurrentMilestone, currentMilestoneRawRanges, withPhaseSection, findMilestoneScopeHeadingLines } = roadmapParserMod;
@@ -1559,20 +1562,27 @@ function scanExistingDecimalPhaseNumbers(phasesDir: string, rawContent: string, 
   // `phase insert` proceed with an incomplete decimalSet and risk writing a
   // decimal phase number that collides with an existing on-disk directory
   // the scan simply never saw — surfaced loud instead, like the sibling.
+  //
+  // #4634 (lint-phase-enumeration-drift): routed through the canonical
+  // PHYSICAL-set owner (`listAllPhaseDirs`, phase-locator.cts) instead of a
+  // hand-rolled `readdirSync`. This scan — like its sibling `cmdPhaseNextDecimal`
+  // and its caller `cmdPhaseInsert` (both exempted in the drift guard for the
+  // same reason) — must see EVERY on-disk decimal sub-phase directory
+  // regardless of the current milestone window, so `listMilestonePhaseDirs`
+  // (windowed) is the wrong owner here; `includeSentinels: true` preserves this
+  // function's pre-existing behavior of never sentinel-filtering (the decimal
+  // regex below only ever matches `base.N`-shaped names, so sentinel inclusion
+  // is a no-op either way).
   if (fs.existsSync(phasesDir)) {
-    // Initialized (not just declared) so TS's definite-assignment check is
-    // satisfied without relying on control-flow narrowing through error()'s
-    // `never` return, which TS does not propagate through a destructured
-    // module-property function reference — error() still halts the process
-    // before `dirs` below is ever computed from this placeholder value.
-    let entries: fs.Dirent[] = [];
-    try {
-      entries = fs.readdirSync(phasesDir, { withFileTypes: true });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      error(`Failed to scan phase directories for existing decimal phases: ${msg}`);
+    const { value: dirs, scope } = listAllPhaseDirs(phasesDir, { includeSentinels: true });
+    if (scope === SCOPE.UNREADABLE) {
+      // The dir EXISTS but could not be read (EACCES/EIO) — a genuine anomaly,
+      // not the expected empty-decimalSet case above. Surfaced loud, matching
+      // this function's pre-migration `readdirSync` catch: swallowing it would
+      // let `phase insert` proceed with an incomplete decimalSet and collide
+      // with an existing on-disk decimal directory the scan never saw.
+      error(`Failed to scan phase directories for existing decimal phases: unable to read ${phasesDir}`);
     }
-    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
     const decimalPattern = new RegExp(`^${OPTIONAL_PROJECT_CODE_PREFIX_SOURCE}${escapeRegex(base)}\\.(\\d+)`);
     for (const dir of dirs) {
       const dm = dir.match(decimalPattern);
