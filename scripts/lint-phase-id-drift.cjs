@@ -100,6 +100,18 @@ const BRACKET_OWNER_HINT =
   'BRACKET_PROJECT_CODE_SRC / BRACKET_ID_SRC / bracketMilestoneIntroSrcFor / BRACKET_MILESTONE_INTRO_CAPTURING_SRC';
 
 /**
+ * Pure: true if the nearest preceding non-blank line to `lines[i]` is a
+ * dedicated sanction comment matching `ownerRe`. Shared by every detector in
+ * this file so the "how do you sanction a finding" walk has one owner instead
+ * of four independent copies that could silently diverge.
+ */
+function isSanctionedByPrecedingComment(lines, i, ownerRe) {
+  let j = i - 1;
+  while (j >= 0 && lines[j].trim() === '') j--; // nearest preceding non-blank line
+  return j >= 0 && ownerRe.test(lines[j]);
+}
+
+/**
  * Pure: find every literal re-derivation of the canonical phase-number token in
  * `text` that is NOT sanctioned. A site is sanctioned when the nearest preceding
  * NON-BLANK line is a dedicated `// phase-id-owner:` comment (blank lines between
@@ -117,9 +129,7 @@ function findPhaseIdRegexDrift(text) {
     const m = TOKEN_DRIFT_RE.exec(line);
     if (!m) continue;
     if (line.includes(CANON_REF)) continue;
-    let j = i - 1;
-    while (j >= 0 && lines[j].trim() === '') j--; // nearest preceding non-blank line
-    if (j >= 0 && OWNER_RE.test(lines[j])) continue;
+    if (isSanctionedByPrecedingComment(lines, i, OWNER_RE)) continue;
     out.push({ line: i + 1, found: m[0] });
   }
   return out;
@@ -139,9 +149,7 @@ function findBracketGrammarDrift(text) {
   for (let i = 0; i < lines.length; i++) {
     const m = BRACKET_CODE_DRIFT_RE.exec(lines[i]);
     if (!m) continue;
-    let j = i - 1;
-    while (j >= 0 && lines[j].trim() === '') j--; // nearest preceding non-blank line
-    if (j >= 0 && OWNER_RE.test(lines[j])) continue;
+    if (isSanctionedByPrecedingComment(lines, i, OWNER_RE)) continue;
     out.push({ line: i + 1, found: m[0] });
   }
   return out;
@@ -170,9 +178,7 @@ function findNameValidityDrift(text) {
     const m = NAME_VALIDITY_DRIFT_RE.exec(line);
     if (!m) continue;
     if (line.includes(NAME_VALIDITY_CANON_REF)) continue;
-    let j = i - 1;
-    while (j >= 0 && lines[j].trim() === '') j--; // nearest preceding non-blank line
-    if (j >= 0 && OWNER_RE.test(lines[j])) continue;
+    if (isSanctionedByPrecedingComment(lines, i, OWNER_RE)) continue;
     out.push({ line: i + 1, found: m[0] });
   }
   return out;
@@ -199,9 +205,7 @@ function findShellPhaseArithDrift(text) {
   for (let i = 0; i < lines.length; i++) {
     const m = SHELL_PHASE_ARITH_DRIFT_RE.exec(lines[i]);
     if (!m) continue;
-    let j = i - 1;
-    while (j >= 0 && lines[j].trim() === '') j--; // nearest preceding non-blank line
-    if (j >= 0 && MD_OWNER_RE.test(lines[j])) continue;
+    if (isSanctionedByPrecedingComment(lines, i, MD_OWNER_RE)) continue;
     out.push({ line: i + 1, found: m[0] });
   }
   return out;
