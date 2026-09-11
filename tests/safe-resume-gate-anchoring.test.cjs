@@ -10,6 +10,11 @@
  * live in this repository's history). Workflow text IS the deployed product here, so
  * the shape assertions are the faithful check; the behavioral fixture row runs the
  * actual pipeline against a crafted history.
+ *
+ * #4619 — the gate's PHASE_N derivation grew to zero-strip only the leading
+ * integer segment of a decimal/N-segment phase number (`01.1`, `23.1.2`) via
+ * base-10 arithmetic, instead of forcing the whole value through
+ * `$((10#...))` and hitting a hard shell syntax error on the first dot.
  */
 
 const { test, describe } = require('node:test');
