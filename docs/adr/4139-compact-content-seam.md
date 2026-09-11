@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Date** | 2026-09-06 |
 | **Issue** | [#4139](https://github.com/open-gsd/gsd-core/issues/4139) |
 | **Phase-0 sub-issue** | [#4400](https://github.com/open-gsd/gsd-core/issues/4400) |
@@ -425,40 +425,70 @@ expanded today because the file is `@`-included. They **stay in the spine** and 
 one into a detail part would silently turn a working import into dead text, which is exactly the
 class of failure the #3324 sub-guard catches.
 
-### 7. Acceptance criteria — satisfied, and reconciled
+### 7. Acceptance criteria — the guard ledger
 
 `CI.GATE.acceptance-criteria-required` treats an unmet must-have as a failed deployment, so the
-criteria are reconciled here explicitly rather than reinterpreted quietly at ship time.
+criteria are reconciled here explicitly rather than reinterpreted quietly at ship time. This
+section was written as a forward-looking reconciliation when only Phase 0 existed; #4408 (the
+closing phase) converts it into a ledger against #4139's own 12 acceptance-criteria checkboxes,
+quoted verbatim, each with the evidence that closed it. "Satisfied" means literally true;
+"Reconciled" means the criterion's *purpose* was met by a structurally different mechanism than
+the one the criterion's wording assumed, argued below.
 
-**Satisfied as written**, by the phase named: config key registration and validation (#4401);
-`/gsd-new-project` question and `/gsd-settings` + `/gsd-config` toggles (#4408); gate logic in
-exactly one file (#4402); corpus coverage with no unpaired canonical file (#4405, #4406, #4407);
-`agent-skills` serving the compact payload (#4407); golfed spawn patterns (#4405, carried inside
-the workflow splits); identical behavior under global and local installs (structural — the key is
-per-project and no file is selected at install time); the compression-rules document and its
-denylist (#4403); the drift check naming a stale pair (#4403, in its partition form — see below);
-the offline reporting-only benchmark with a committed baseline (#4404); the full suite green with
-the key on and off (#4408); all shipped-content guards passing (every phase).
+| # | Criterion (verbatim from #4139) | Verdict | Evidence |
+|---|---|---|---|
+| 1 | `workflow.prompt_golf` is registered in the config schema; `config-set`/`config-get` persist and read it, invalid value rejected | Satisfied — key renamed to `workflow.compact_content` (Decision 1) | #4401 → [PR #4441](https://github.com/open-gsd/gsd-core/pull/4441) |
+| 2 | `/gsd-new-project` asks a Prompt Golf question and writes the answer | Satisfied | #4408 → this PR, `gsd-core/workflows/new-project.md` Round 2 |
+| 3 | `/gsd-settings` and `/gsd-config` can toggle the key on an already-initialized project | Satisfied | #4408 → this PR, `gsd-core/workflows/settings.md` (`/gsd-config` routes here with no flag) |
+| 4 | With golf on, workflows load golfed variants via a single shared gate reference file; gate logic exists in exactly one file | Satisfied | #4402 → [PR #4471](https://github.com/open-gsd/gsd-core/pull/4471), `gsd-core/references/compact-content-gate.md` |
+| 5 | Every shipped workflow instruction file and planning-artifact template has a golfed variant registered with the parity check — no unpaired canonical file remains | Reconciled (#1 below) | #4402/#4403/#4405/#4406 |
+| 6 | `gsd_run query agent-skills <agent>` returns the golfed payload for every agent when on, canonical when off | Reconciled (#2 below) | #4407 → [PR #4553](https://github.com/open-gsd/gsd-core/pull/4553) |
+| 7 | Subagent prompts emitted by orchestrators follow golfed spawn patterns when golf is on | Satisfied — carried inside the workflow spine/detail splits, no separate mechanism needed | #4405 → [PR #4536](https://github.com/open-gsd/gsd-core/pull/4536) |
+| 8 | Behavior identical under global and local installs — per-project config decides, never install-time file selection | Satisfied — structural: the config key is read at runtime from `.planning/config.json`; no phase added install-time file selection | Design invariant, unchanged across all 8 phases |
+| 9 | A committed compression-rules document defines a protected-content denylist; no golfed variant weakens protected content | Satisfied | #4403 → [PR #4497](https://github.com/open-gsd/gsd-core/pull/4497), Decision 5 above |
+| 10 | Editing a canonical file without updating its golfed variant fails the drift-parity check, naming the stale pair | Reconciled (#3 below) | #4403 → PR #4497 |
+| 11 | The benchmark runs fully offline, reports per-file/aggregate reduction as a labeled proxy-tokenizer delta, reproduces its committed baseline deterministically, is reporting-only | Satisfied | #4404 → [PR #4502](https://github.com/open-gsd/gsd-core/pull/4502) |
+| 12 | The full existing test suite passes with golf enabled AND with golf disabled | Satisfied | Every phase's `gsd-test` run covers the key off (default, unset); `tests/agent-skills.test.cjs`'s stream-2 fixtures (#4407) and Phase 2's live end-to-end dogfooding (#4402 — a real phase planned twice against this repo, once with the key false, once true) cover it on |
+| 13 | All golfed and gate-bearing shipped content passes the existing shipped-content guards: size budgets, emitted-attribution, `commit-files-pathspec`, `commit-docs-bypass` | Satisfied — ongoing, every phase | Recorded per-phase in each PR's own review artifact; no phase shipped with a red shipped-content guard |
 
-**Reconciled, with the reasoning:**
+**Reconciled, with the reasoning** (numbered to match the ledger's "Reconciled (#N below)" cells):
 
-1. *"With golf off they load canonical content"* — they do. The reconciliation is mechanical, not
-   semantic: the canonical content arrives as spine plus detail rather than as one eager blob. The
-   instruction set an orchestrator holds with the key off is the same instruction set it holds
-   today.
-2. *"Editing a canonical file without updating its golfed variant fails the drift-parity check"* —
-   under Decision 5 there is no variant to go stale, so this criterion's *purpose* (a canonical edit
-   cannot silently leave a paired file behind) is met structurally rather than by a check. The check
-   that remains enforces the invariant that makes it structural: disjointness plus registration.
-   This is a stronger outcome than the criterion asked for, and #4403 must demonstrate it by proving
-   each check can actually fail before it is trusted.
-3. *"With golf off, GSD behaves exactly as it does today"* (user story 3) — **not fully achievable,
-   by any design that delivers stream-1 savings.** Decision 4(a) states the residual: an opted-out
-   project's elaborations arrive by a runtime `Read` that could be missed, and a miss yields the
-   compact behavior. The deviation is bounded to a state the project deliberately supports and
-   validates in #4402. This is recorded as a knowing, argued deviation. It is the item on this list
-   a maintainer may reasonably want to overturn, and if it is overturned the consequence is
-   automatic: stream 1 becomes uncoverable and the epic reduces to streams 2 and 4.
+1. *(criterion 5)* "No unpaired canonical file remains" reads as "every file has a golfed twin."
+   What shipped instead, deliberately: streams 1/1b/4 use a **partition** (spine + detail, or a
+   variant swap), not a duplicate-and-maintain pair, and the eagerly-`@`-included corpus was
+   individually reviewed — some files split (#4402/#4405/#4406), others were **recorded as not
+   worth splitting** (`docs/PARTITION-RULES.md`) because their size is safety-critical
+   orchestration logic rather than deferrable narrative, or because a split's fixed overhead
+   would exceed the savings. "No unpaired canonical file" is true of every file this epic
+   *covers*; it was never true, nor intended to be, of files the epic explicitly declined to
+   cover with a stated reason — which is the criterion's own spirit (a reviewed decision, not a
+   silent gap).
+2. *(criterion 6)* "For every agent" reads as literally all 35. #4407 shipped 29 — six
+   (`gsd-debugger`, `gsd-executor`, `gsd-phase-researcher`, `gsd-plan-checker`, `gsd-planner`,
+   `gsd-verifier`) exceed the hard, non-ackable `NEW_FILE_CAP` even after aggressive compaction,
+   a structural constraint the seam's single-file read has no mechanism to route around without
+   building a second spine/detail-style partition mechanism scoped for agents — out of proportion
+   to #4407's own "the code delta is small" framing. The criterion's *purpose* — never fail or
+   serve nothing — holds for all 35: the `#2454` fallback discloses the substitution inside the
+   payload itself for the six uncovered agents, exactly the behavior criterion 6 and #4139's
+   Alternative-5 rejection ("golfing in place forfeits the side-by-side comparison") both protect
+   against losing.
+3. *(criterion 10)* Under Decision 5's partition shape there is no variant to go stale — a
+   canonical edit and its elaboration are pieces of ONE document, not two. The criterion's
+   *purpose* (a canonical edit cannot silently leave a paired file behind) is met structurally
+   rather than by a drift check catching it after the fact. What #4403 built instead —
+   disjointness (no line duplicated) plus registration (no orphaned or dangling part) — is a
+   stronger invariant than "the parity check fails," and #4403's own failing-first fixtures prove
+   each check can actually fail before either was trusted.
+
+**One item this ledger overturns rather than reconciles:** user story 3 ("with golf off, GSD
+behaves exactly as it does today") is **not fully achievable by any design that delivers
+stream-1 savings** — Decision 4(a) states the residual plainly: an opted-out project's
+elaborations arrive by a runtime `Read` that could be missed, and a miss yields the compact
+behavior rather than a crash. This was accepted knowingly at Phase 0 and validated in #4402's
+live dogfooding rather than fixed, because the alternative (converting the `@`-includes) has an
+unbounded failure mode instead of a bounded one (see §Context). It is recorded here, not buried,
+as the one criterion whose letter was traded for its spirit.
 
 ## Consequences
 
@@ -507,22 +537,22 @@ the key on and off (#4408); all shipped-content guards passing (every phase).
 
 ## Phase plan
 
-| Phase | Issue | Delivers | Depends on |
-|---|---|---|---|
-| 0 | [#4400](https://github.com/open-gsd/gsd-core/issues/4400) | this ADR | — |
-| 1 | [#4401](https://github.com/open-gsd/gsd-core/issues/4401) | `workflow.compact_content` end to end | 0 |
-| 2 | [#4402](https://github.com/open-gsd/gsd-core/issues/4402) | shared gate + pilot split + accuracy spot-check | 1 |
-| 3 | [#4403](https://github.com/open-gsd/gsd-core/issues/4403) | partition rules + the five checks | 2 |
-| 4 | [#4404](https://github.com/open-gsd/gsd-core/issues/4404) | offline benchmark + committed baseline | 3 |
-| 5 | [#4405](https://github.com/open-gsd/gsd-core/issues/4405) | stream 1 corpus coverage (carries stream 3) | 3, 4 |
-| 6 | [#4406](https://github.com/open-gsd/gsd-core/issues/4406) | stream 1b subdirectories + stream 4 templates | 5 |
-| 7 | [#4407](https://github.com/open-gsd/gsd-core/issues/4407) | stream 2 agent-skill payloads via the CLI seam | 6 |
-| 8 | [#4408](https://github.com/open-gsd/gsd-core/issues/4408) | user surfaces, docs, guard ledger — closes #4139 | 7 |
+| Phase | Issue | Delivers | Depends on | PR |
+|---|---|---|---|---|
+| 0 | [#4400](https://github.com/open-gsd/gsd-core/issues/4400) | this ADR | — | — |
+| 1 | [#4401](https://github.com/open-gsd/gsd-core/issues/4401) | `workflow.compact_content` end to end | 0 | [#4441](https://github.com/open-gsd/gsd-core/pull/4441) |
+| 2 | [#4402](https://github.com/open-gsd/gsd-core/issues/4402) | shared gate + pilot split + accuracy spot-check | 1 | [#4471](https://github.com/open-gsd/gsd-core/pull/4471) |
+| 3 | [#4403](https://github.com/open-gsd/gsd-core/issues/4403) | partition rules + the five checks | 2 | [#4497](https://github.com/open-gsd/gsd-core/pull/4497) |
+| 4 | [#4404](https://github.com/open-gsd/gsd-core/issues/4404) | offline benchmark + committed baseline | 3 | [#4502](https://github.com/open-gsd/gsd-core/pull/4502) |
+| 5 | [#4405](https://github.com/open-gsd/gsd-core/issues/4405) | stream 1 corpus coverage (carries stream 3) | 3, 4 | [#4536](https://github.com/open-gsd/gsd-core/pull/4536) |
+| 6 | [#4406](https://github.com/open-gsd/gsd-core/issues/4406) | stream 1b subdirectories + stream 4 templates | 5 | [#4540](https://github.com/open-gsd/gsd-core/pull/4540) |
+| 7 | [#4407](https://github.com/open-gsd/gsd-core/issues/4407) | stream 2 agent-skill payloads via the CLI seam | 6 | [#4553](https://github.com/open-gsd/gsd-core/pull/4553) |
+| 8 | [#4408](https://github.com/open-gsd/gsd-core/issues/4408) | user surfaces, docs, guard ledger — closes #4139 | 7 | this PR |
 
 Guards land before content proliferates (Phases 3 and 4 precede Phase 5), satisfying approval
 condition 2. The pilot's end-to-end accuracy spot-check is Phase 2's, satisfying condition 3.
 
-## Open questions for the implementation phases
+## Open questions for the implementation phases — resolved at close
 
 - Whether `discuss-phase` — the one command that already reaches its workflow by runtime `Read` —
   should be brought onto the spine shape too. It is the sole existing instance of the substitutive
@@ -532,6 +562,14 @@ condition 2. The pilot's end-to-end accuracy spot-check is Phase 2's, satisfying
   Giving it a spine would remove that residual entirely, and it is the one place in the tree where
   this ADR's mechanism would be a strict safety improvement rather than a token trade. Scoped to
   Phase 5 (#4405) to decide with the rest of stream 1 in view.
+  **Resolved: not converted.** `gsd-core/workflows/discuss-phase/` carries no `detail/`
+  subdirectory as of #4408; the prose-only mitigation quoted above is unchanged. This was not
+  revisited with an explicit for/against argument in #4405 — recorded here as a genuine gap in
+  the epic's own closure, not a reasoned decline. A future phase wanting the safety improvement
+  this question identifies starts from a clean slate, not from an argued rejection.
 - Whether the disjointness check should compare normalized sentences rather than normalized lines.
   Lines are cheaper and catch copy-paste; sentences catch reflowing. Decided in #4403 against real
   splits rather than in the abstract here.
+  **Resolved: lines.** `tests/helpers/compact-content-split.cjs`'s `normalizeNonTrivialLines`
+  is the shipped comparison unit — confirmed against the real implementation, not asserted from
+  the plan.

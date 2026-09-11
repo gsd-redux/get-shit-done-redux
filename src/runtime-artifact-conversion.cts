@@ -1072,7 +1072,7 @@ function buildKimiAgentArtifacts({
  * @param {boolean} [isGlobal=false] - Whether this is a global install
  */
 function convertClaudeToAntigravityContent(content, isGlobal = false) {
-  let c = content;
+  let c = filterRuntimeNotesForTarget(content, 'antigravity');
   if (isGlobal) {
     // #3738: global skills install under ~/.gemini/config/skills (the dir AGY
     // scans for global discovery), so skills-path references must divert there
@@ -1173,7 +1173,7 @@ function convertSlashCommandsToCursorSkillMentions(content) {
 }
 
 function convertClaudeToCursorMarkdown(content) {
-  let converted = convertSlashCommandsToCursorSkillMentions(content);
+  let converted = convertSlashCommandsToCursorSkillMentions(filterRuntimeNotesForTarget(content, 'cursor'));
   // Replace tool name references in body text
   converted = converted.replace(/\bBash\(/g, 'Shell(');
   converted = converted.replace(/\bEdit\(/g, 'StrReplace(');
@@ -1279,7 +1279,7 @@ function convertSlashCommandsToWindsurfSkillMentions(content) {
 }
 
 function convertClaudeToWindsurfMarkdown(content) {
-  let converted = convertSlashCommandsToWindsurfSkillMentions(content);
+  let converted = convertSlashCommandsToWindsurfSkillMentions(filterRuntimeNotesForTarget(content, 'windsurf'));
   // Replace tool name references in body text
   converted = converted.replace(/\bBash\(/g, 'Shell(');
   converted = converted.replace(/\bEdit\(/g, 'StrReplace(');
@@ -1451,7 +1451,7 @@ function convertSlashCommandsToAugmentSkillMentions(content) {
 }
 
 function convertClaudeToAugmentMarkdown(content) {
-  let converted = convertSlashCommandsToAugmentSkillMentions(content);
+  let converted = convertSlashCommandsToAugmentSkillMentions(filterRuntimeNotesForTarget(content, 'augment'));
   converted = converted.replace(/\bBash\(/g, 'launch-process(');
   converted = converted.replace(/\bEdit\(/g, 'str-replace-editor(');
   converted = converted.replace(/\bRead\(/g, 'view(');
@@ -1535,7 +1535,7 @@ function convertSlashCommandsToTraeSkillMentions(content) {
 }
 
 function convertClaudeToTraeMarkdown(content) {
-  let converted = convertSlashCommandsToTraeSkillMentions(content);
+  let converted = convertSlashCommandsToTraeSkillMentions(filterRuntimeNotesForTarget(content, 'trae'));
   converted = converted.replace(/\bBash\(/g, 'Shell(');
   converted = converted.replace(/\bEdit\(/g, 'StrReplace(');
   // Replace general-purpose subagent type with Trae's equivalent "general_purpose_task"
@@ -1645,7 +1645,7 @@ function convertSlashCommandsToCodebuddySkillMentions(content) {
 }
 
 function convertClaudeToCodebuddyMarkdown(content) {
-  let converted = convertSlashCommandsToCodebuddySkillMentions(content);
+  let converted = convertSlashCommandsToCodebuddySkillMentions(filterRuntimeNotesForTarget(content, 'codebuddy'));
   // CodeBuddy uses the same tool names as Claude Code (Bash, Edit, Read, Write, etc.)
   // No tool name conversion needed
   converted = converted.replace(/\$ARGUMENTS\b/g, '{{GSD_ARGS}}');
@@ -1723,7 +1723,7 @@ function convertClaudeCommandToCodebuddyCommand(content, commandName) {
 // ── Cline converters ────────────────────────────────────────────────────────
 
 function convertClaudeToCliineMarkdown(content) {
-  let converted = content;
+  let converted = filterRuntimeNotesForTarget(content, 'cline');
   // Cline uses the same tool names as Claude Code — no tool name conversion needed
   converted = converted.replace(/`\.\/CLAUDE\.md`/g, '`.clinerules`');
   converted = converted.replace(/\.\/CLAUDE\.md/g, '.clinerules');
@@ -1817,7 +1817,7 @@ function rewriteBareGsdToolsCommandsForCodex(content) {
 }
 
 function convertClaudeToCodexMarkdown(content) {
-  let converted = convertSlashCommandsToCodexSkillMentions(content);
+  let converted = convertSlashCommandsToCodexSkillMentions(filterRuntimeNotesForTarget(content, 'codex'));
   converted = converted.replace(/\$ARGUMENTS\b/g, '{{GSD_ARGS}}');
   // Remove /clear references — Codex has no equivalent command
   // Handle backtick-wrapped: `\/clear` then: → (removed)
@@ -2012,9 +2012,29 @@ function frontmatterScalar(key: string, value: string): string {
     : `${key} ${value}`;
 }
 
+const RUNTIME_NOTE_AUDIENCE_BY_HEADING = new Map<string, string>([
+  ['copilot (vs code)', 'copilot'],
+]);
+
+function filterRuntimeNotesForTarget(content: string, targetRuntime: string): string {
+  return content.replace(/<runtime_note(?:\s+runtime=["']([^"']+)["'])?>([\s\S]*?)<\/runtime_note>/g,
+    (whole, declaredAudience: string | undefined, inner: string) => {
+    if (declaredAudience && declaredAudience.toLowerCase() !== targetRuntime) return '';
+    const remaining = inner.replace(
+      /(?:^|\n)[ \t]*\*\*([^*\n]+):\*\*[^\n]*(?:\n(?![ \t]*\n)[^\n]*)*/g,
+      (section, heading: string) => {
+        const audience = RUNTIME_NOTE_AUDIENCE_BY_HEADING.get(heading.trim().toLowerCase());
+        return audience && audience !== targetRuntime ? '' : section;
+      },
+    );
+    const body = remaining.trim();
+    return body ? `<runtime_note>\n${body}\n</runtime_note>` : '';
+  });
+}
+
 function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOverride = null, variant = null } = {}) {
   // Replace tool name references in content (applies to all files)
-  let convertedContent = content;
+  let convertedContent = filterRuntimeNotesForTarget(content, 'opencode');
   convertedContent = convertedContent.replace(/\bAskUserQuestion\b/g, 'question');
   convertedContent = convertedContent.replace(/\bSlashCommand\b/g, 'skill');
   convertedContent = convertedContent.replace(/\bTodoWrite\b/g, 'todowrite');
@@ -2192,7 +2212,7 @@ function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOve
 // (#2093).
 function convertClaudeToKiloFrontmatter(content, { isAgent = false, modelOverride = null } = {}) {
   // Replace tool name references in content (applies to all files)
-  let convertedContent = content;
+  let convertedContent = filterRuntimeNotesForTarget(content, 'kilo');
   convertedContent = convertedContent.replace(/\bAskUserQuestion\b/g, 'question');
   convertedContent = convertedContent.replace(/\bSlashCommand\b/g, 'skill');
   convertedContent = convertedContent.replace(/\bTodoWrite\b/g, 'todowrite');
@@ -3151,6 +3171,8 @@ function _applyRuntimeRewrites(content, runtime, pathPrefix, isGlobal = false, a
   const dirName = getDirName(runtime);
   const normalizedPathPrefix = pathPrefix.replace(/\/$/, '');
 
+  content = filterRuntimeNotesForTarget(content, runtime);
+
   // #1521: stamp runtime identity + use_worktrees=false for every non-Claude runtime
   // before brand-specific path rewrites, so the replace operates on the pristine
   // source line and is idempotent regardless of subsequent path substitutions.
@@ -3862,6 +3884,7 @@ export = {
   neutralizeAgentReferences,
   convertClaudeCommandToOpencodeSkill,
   convertClaudeCommandToKiloSkill,
+  filterRuntimeNotesForTarget,
   // #2087 — opencode/kilo command-frontmatter converters, exported so the
   // layout-driven `convertedCommandsKind` can resolve them by name (routes the
   // opencode/kilo command install through the engine instead of the bespoke path).

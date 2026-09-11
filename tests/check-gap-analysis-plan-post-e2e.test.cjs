@@ -23,6 +23,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { runGsdTools, createTempProject, cleanup } = require('./helpers.cjs');
+const { LOOP_HOOK_POINT_CLI_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const GSD_TOOLS = path.join(__dirname, '..', 'gsd-core', 'bin', 'gsd-tools.cjs');
 
@@ -74,7 +75,7 @@ function spawnRenderHooks(point, cwd) {
   const result = spawnSync(process.execPath, [GSD_TOOLS, 'loop', 'render-hooks', point, '--raw'], {
     cwd,
     encoding: 'utf8',
-    timeout: 60000,
+    timeout: LOOP_HOOK_POINT_CLI_TIMEOUT_MS,
     env: { ...process.env, GSD_SESSION_KEY: '', CODEX_THREAD_ID: '', CLAUDE_SESSION_ID: '' },
   });
   return {

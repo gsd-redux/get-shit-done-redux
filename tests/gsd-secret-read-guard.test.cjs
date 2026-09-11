@@ -32,6 +32,7 @@ const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { runHook: runHookSeam } = require('./helpers/process-seam.cjs');
+const { QUICK_SPAWN_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const HOOK_PATH = path.join(__dirname, '..', 'hooks', 'gsd-secret-read-guard.js');
 
@@ -39,7 +40,7 @@ function runHook(payload) {
   const r = runHookSeam(HOOK_PATH, [], {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     env: { ...process.env },
-    timeoutMs: 10_000,
+    timeoutMs: QUICK_SPAWN_TIMEOUT_MS,
   });
   return { status: r.exitCode, stdout: r.stdout, stderr: r.stderr };
 }

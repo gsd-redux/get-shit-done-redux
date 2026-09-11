@@ -567,6 +567,35 @@ Intel commands (`intel status`, `intel query`, `intel diff`, `intel snapshot`, `
 
 For intel, conditions 1 and 2 are always satisfied (intel has no skill files). The effective gate is `intel.enabled` in config — the same behaviour as before, but now enforced through the shared `isCapabilityActive('intel', cwd)` resolver rather than a direct config read. This means intel honours the full capability-state pipeline, including any future install-profile or surface restrictions. If intel commands return `{ disabled: true }`, ensure `intel.enabled: true` is set in `.planning/config.json` and verify `gsd-tools capability state` shows intel as active.
 
+### Compact content mode (`workflow.compact_content`, v4139+)
+
+GSD's own workflow instructions, planning-artifact templates, and (for non-Claude runtimes)
+agent personas are prose — and a large eagerly-loaded instruction body is context the model
+spends on GSD's own orchestration rather than on your code. `workflow.compact_content` (default
+`false`) opts a project into token-minimized variants of that content wherever one has been
+authored, without changing what GSD actually does.
+
+**Why turn it on: finite attention, not price.** The point of this key is not a cheaper
+invocation — with prompt caching, the per-request cost of re-sending a large instruction file
+is already small. The point is what a large always-loaded instruction body costs in *attention*:
+every byte of GSD's own prose sitting in context is a byte not spent reasoning about your
+codebase. That cost is paid whether or not the tokens were cheap to transport. Turn it on when
+you're running long sessions, working in a large codebase that already competes for context, or
+on a runtime with a small context window; leave it off (the default) if you'd rather have every
+elaboration and worked example available up front, or you're evaluating GSD for the first time
+and want full detail while you learn how it thinks.
+
+**What actually changes.** Nothing is compressed at runtime. Every compact variant is a
+hand-authored, reviewed file sitting beside its canonical sibling — the key only chooses which
+one GSD reads. Guardrails, output-format contracts, few-shot examples, and security language are
+never shortened or dropped in a compact variant; only rarely-needed elaboration and restatement
+are. With the key off, behavior is unchanged from before this feature existed.
+
+**How to turn it on:** answer "Yes" to the Compact Content question during `/gsd-new-project`,
+or run `/gsd-settings` (or `/gsd-config` with no flag) on an existing project and toggle
+Compact Content. See [`docs/CONFIGURATION.md`](CONFIGURATION.md#workflow-toggles) for the
+mechanics and [ADR-4139](adr/4139-compact-content-seam.md) for the full design rationale.
+
 ---
 
 ## Usage Examples

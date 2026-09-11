@@ -31,6 +31,7 @@ const { spawnSync } = require('node:child_process');
 
 const { cleanup } = require('./helpers.cjs');
 const { gitOrThrow } = require('./helpers/git-fixture.cjs');
+const { LOOP_HOOK_POINT_CLI_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const GSD_TOOLS = path.join(__dirname, '..', 'gsd-core', 'bin', 'gsd-tools.cjs');
 
@@ -72,7 +73,7 @@ function runTool(args, { cwd, env = {} } = {}) {
     cwd: cwd || os.tmpdir(),
     encoding: 'utf8',
     env: childEnv,
-    timeout: 60000,
+    timeout: LOOP_HOOK_POINT_CLI_TIMEOUT_MS,
   });
   const result = { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
   if (r.stdout && r.stdout.trim().startsWith('{')) {

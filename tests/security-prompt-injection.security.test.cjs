@@ -85,6 +85,7 @@ const {
 } = require('./helpers.cjs');
 const { runCli } = require('./helpers/cli-negative.cjs');
 const { runHook: runHookSeam } = require('./helpers/process-seam.cjs');
+const { MALFORMED_INPUT_HOOK_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PROMPT_GUARD_HOOK = path.join(REPO_ROOT, 'hooks', 'gsd-prompt-guard.js');
@@ -402,7 +403,7 @@ describe('gsd-prompt-guard: hostile .planning/ writes are advised, not blocked',
     const r = spawnSync(process.execPath, [PROMPT_GUARD_HOOK], {
       input: 'this is not json at all',
       encoding: 'utf-8',
-      timeout: 5000,
+      timeout: MALFORMED_INPUT_HOOK_TIMEOUT_MS,
     });
     assert.strictEqual(r.status, 0, 'hook must never propagate parser failure');
   });
@@ -493,7 +494,7 @@ describe('gsd-read-injection-scanner: hostile reads are flagged with severity', 
     const r = spawnSync(process.execPath, [READ_SCANNER_HOOK], {
       input: '{not json',
       encoding: 'utf-8',
-      timeout: 5000,
+      timeout: MALFORMED_INPUT_HOOK_TIMEOUT_MS,
     });
     assert.strictEqual(r.status, 0,
       'hook must silent-fail on parser error — never block downstream tool');

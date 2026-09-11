@@ -654,10 +654,19 @@ describe('validateFieldName', () => {
 
 const { runHook: runHookSeam } = require('./helpers/process-seam.cjs');
 
+// Bounds a single advisory hook invocation (gsd-context-monitor.js or
+// gsd-statusline.js) under a session_id path-traversal security test —
+// trivial synchronous work, no subprocess fan-out, expected near-instant
+// silent exit. The value (3000ms) is the tightest bound in this migration's
+// security-scanners batch and unique to this file/class; preserved exactly,
+// not widened to match any other existing norm. No fresh bench data
+// justifies a different number.
+const SESSION_ID_TRAVERSAL_HOOK_TIMEOUT_MS = 3000;
+
 function runHook(hookPath, inputJson) {
   const result = runHookSeam(hookPath, [], {
     input: JSON.stringify(inputJson),
-    timeoutMs: 3000,
+    timeoutMs: SESSION_ID_TRAVERSAL_HOOK_TIMEOUT_MS,
   });
   return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }

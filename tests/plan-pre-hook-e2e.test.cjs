@@ -33,6 +33,16 @@ const { cleanup } = require('./helpers.cjs');
 
 const GSD_TOOLS = path.join(__dirname, '..', 'gsd-core', 'bin', 'gsd-tools.cjs');
 
+/**
+ * Bounds a single gsd-tools.cjs CLI subcommand invocation — the same call
+ * shape as the shared LOOP_HOOK_POINT_CLI_TIMEOUT_MS constant in
+ * tests/helpers/timeouts.cjs. This file's pre-existing bound (30000ms) is
+ * half that shared norm's value (60000ms) — kept as its own file-local
+ * constant rather than folded into the shared one, since no fresh bench
+ * data justifies raising this file's bound to match.
+ */
+const PLAN_PRE_HOOK_CLI_TIMEOUT_MS = 30000;
+
 // ─── Subprocess helper (isolated env, no ambient GSD_ vars) ───────────────────
 
 const CLEAN_ENV = {
@@ -65,7 +75,7 @@ function runTools(args, cwd, envOverrides = {}) {
     {
       cwd: cwd || process.cwd(),
       encoding: 'utf8',
-      timeout: 30000,
+      timeout: PLAN_PRE_HOOK_CLI_TIMEOUT_MS,
       env: { ...process.env, ...CLEAN_ENV, ...envOverrides },
     },
   );

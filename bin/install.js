@@ -436,7 +436,7 @@ const GSD_CHANGESET_FILES = [
   'github-release-notes.cjs', 'lint.cjs', 'new.cjs',
   'README.md', // documentation only — not user-authored
 ];
-const GSD_SCRIPTS_LIB_FILES = ['cli-exit.cjs', 'allowlist-ratchet.cjs', 'drift-scan.cjs', 'alias-drift-families.cjs', 'exit-code-registry.cjs', 'ndjson-reporter.cjs', 'ci-job-timing.cjs', 'shellcheck-fetch.cjs', 'npm-version-check-diagnosis.cjs'];
+const GSD_SCRIPTS_LIB_FILES = ['cli-exit.cjs', 'allowlist-ratchet.cjs', 'drift-scan.cjs', 'alias-drift-families.cjs', 'exit-code-registry.cjs', 'ndjson-reporter.cjs', 'ci-job-timing.cjs', 'shellcheck-fetch.cjs', 'npm-version-check-diagnosis.cjs', 'platform-conformance-tier.generated.cjs', 'suite-detection.cjs', 'macos-conformance-tier.generated.cjs'];
 
 /**
  * Resolve a runtime's shared-hooks directory name from its descriptor.
@@ -1292,6 +1292,7 @@ const removeKimiHooksToml = hooksSurface.removeKimiHooksToml;
 // callers continue to work and there is a single implementation. (All call
 // sites are below this line, so the const binding has no TDZ hazard.)
 const processAttribution = runtimeArtifactConversion.processAttribution;
+const filterRuntimeNotesForTarget = runtimeArtifactConversion.filterRuntimeNotesForTarget;
 // computePathPrefix: implementation lives in runtimeArtifactConversion
 // (ADR-1508 / #1511 Phase 2 — single owner). Re-bound here so install.js call
 // sites continue to work. #2876 retired the sibling
@@ -2415,7 +2416,7 @@ function convertClaudeAgentToCopilotAgent(content, isGlobal = false) {
  * @param {boolean} [isGlobal=false] - Whether this is a global install
  */
 function convertClaudeToAntigravityContent(content, isGlobal = false) {
-  let c = content;
+  let c = filterRuntimeNotesForTarget(content, 'antigravity');
   if (isGlobal) {
     // #3738: global skills install under ~/.gemini/config/skills (the dir AGY
     // scans for global discovery), so skills-path references must divert there
@@ -2551,7 +2552,7 @@ function convertSlashCommandsToCursorSkillMentions(content) {
 }
 
 function convertClaudeToCursorMarkdown(content) {
-  let converted = convertSlashCommandsToCursorSkillMentions(content);
+  let converted = convertSlashCommandsToCursorSkillMentions(filterRuntimeNotesForTarget(content, 'cursor'));
   // Replace tool name references in body text
   converted = converted.replace(/\bBash\(/g, 'Shell(');
   converted = converted.replace(/\bEdit\(/g, 'StrReplace(');
@@ -2672,7 +2673,7 @@ function convertSlashCommandsToTraeSkillMentions(content) {
 }
 
 function convertClaudeToTraeMarkdown(content) {
-  let converted = convertSlashCommandsToTraeSkillMentions(content);
+  let converted = convertSlashCommandsToTraeSkillMentions(filterRuntimeNotesForTarget(content, 'trae'));
   converted = converted.replace(/\bBash\(/g, 'Shell(');
   converted = converted.replace(/\bEdit\(/g, 'StrReplace(');
   // Replace general-purpose subagent type with Trae's equivalent "general_purpose_task"
@@ -2798,7 +2799,7 @@ function convertSlashCommandsToCodebuddySkillMentions(content) {
 }
 
 function convertClaudeToCodebuddyMarkdown(content) {
-  let converted = convertSlashCommandsToCodebuddySkillMentions(content);
+  let converted = convertSlashCommandsToCodebuddySkillMentions(filterRuntimeNotesForTarget(content, 'codebuddy'));
   // CodeBuddy uses the same tool names as Claude Code (Bash, Edit, Read, Write, etc.)
   // No tool name conversion needed
   converted = converted.replace(/\$ARGUMENTS\b/g, '{{GSD_ARGS}}');
@@ -2890,7 +2891,7 @@ function convertClaudeAgentToCodebuddyAgent(content) {
 // ── Cline converters ────────────────────────────────────────────────────────
 
 function convertClaudeToCliineMarkdown(content) {
-  let converted = content;
+  let converted = filterRuntimeNotesForTarget(content, 'cline');
   // Cline uses the same tool names as Claude Code — no tool name conversion needed
   converted = converted.replace(/`\.\/CLAUDE\.md`/g, '`.clinerules`');
   converted = converted.replace(/\.\/CLAUDE\.md/g, '.clinerules');
@@ -3813,7 +3814,7 @@ function rewriteBareGsdToolsCommandsForCodex(content) {
 }
 
 function convertClaudeToCodexMarkdown(content) {
-  let converted = convertSlashCommandsToCodexSkillMentions(content);
+  let converted = convertSlashCommandsToCodexSkillMentions(filterRuntimeNotesForTarget(content, 'codex'));
   converted = converted.replace(/\$ARGUMENTS\b/g, '{{GSD_ARGS}}');
   // Remove /clear references — Codex has no equivalent command
   // Handle backtick-wrapped: `\/clear` then: → (removed)
@@ -7194,7 +7195,7 @@ function neutralizeAgentReferences(content, instructionFile) {
 
 function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOverride = null } = {}) {
   // Replace tool name references in content (applies to all files)
-  let convertedContent = content;
+  let convertedContent = filterRuntimeNotesForTarget(content, 'opencode');
   convertedContent = convertedContent.replace(/\bAskUserQuestion\b/g, 'question');
   convertedContent = convertedContent.replace(/\bSlashCommand\b/g, 'skill');
   convertedContent = convertedContent.replace(/\bTodoWrite\b/g, 'todowrite');
@@ -7356,7 +7357,7 @@ function convertClaudeToOpencodeFrontmatter(content, { isAgent = false, modelOve
 // tests/runtime-converters.test.cjs (#2093).
 function convertClaudeToKiloFrontmatter(content, { isAgent = false, modelOverride = null } = {}) {
   // Replace tool name references in content (applies to all files)
-  let convertedContent = content;
+  let convertedContent = filterRuntimeNotesForTarget(content, 'kilo');
   convertedContent = convertedContent.replace(/\bAskUserQuestion\b/g, 'question');
   convertedContent = convertedContent.replace(/\bSlashCommand\b/g, 'skill');
   convertedContent = convertedContent.replace(/\bTodoWrite\b/g, 'todowrite');
@@ -7909,6 +7910,8 @@ function copyWithPathReplacement(srcDir, destDir, pathPrefix, runtime, isCommand
       if (shouldCompose(srcPath)) {
         content = composeWorkflow(content, { sourcePath: srcPath });
       }
+
+      content = filterRuntimeNotesForTarget(content, runtime);
 
       if (!dispatch.mdSkipGenericRewrite) {
         const globalClaudeRegex = /~\/\.claude\//g;

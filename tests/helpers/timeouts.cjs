@@ -141,6 +141,130 @@ const QUICK_SPAWN_TIMEOUT_MS = 10000;
  */
 const FIXTURE_HOOK_TIMEOUT_SECONDS = 5;
 
+/**
+ * Spawning ONE already-staged or already-bundled hook script directly --
+ * never the full installer, never a fan-out across several hooks -- where
+ * the script does a modest amount of real work: a git-root check, a
+ * version-cache read/write, or an ESM-vs-CommonJS module load probe under a
+ * hostile config root. This is a distinct, heavier class than
+ * `QUICK_SPAWN_TIMEOUT_MS` (10000ms, trivial invocations with no real
+ * git/network work), since every site using this constant measurably does
+ * more than that. It is also distinct from `HOOK_FANOUT_TIMEOUT_MS`, which
+ * bounds a different class -- nested shell fan-out across MULTIPLE hooks,
+ * not a single script.
+ *
+ * Shared across 3 files in batch #4516 of the ad hoc timeout literal
+ * migration, epic #4445 -- that is why it lives here rather than as a
+ * file-local constant.
+ */
+const STAGED_HOOK_SCRIPT_TIMEOUT_MS = 20000;
+
+/**
+ * A single `gsd-tools.cjs` CLI subcommand invocation, spawned directly (never
+ * via an intermediate shell script), used by a loop/hook-point e2e test. The
+ * command does real in-process work -- capability/config resolution, project
+ * scaffolding, or (for the `check` verbs that inspect git-tracked state) real
+ * git plumbing calls -- but as ONE process with no confirmed nested-subprocess
+ * fan-out, verified per-site by reading each file's own runner function, not
+ * assumed from "hook" in the filename. Representative verbs seen at this
+ * norm's 7 sites: `loop render-hooks <point>`, `check <check-id>`,
+ * `execute <hook-point>`, and `init new-project` (tests/loop-walk.qa.test.cjs's
+ * concurrency test) -- the norm describes the CALL SHAPE (single direct
+ * gsd-tools.cjs spawn, no fan-out), not one specific verb family, so this list
+ * is illustrative, not exhaustive.
+ *
+ * Distinct from `HOOK_FANOUT_TIMEOUT_MS` (a bash-hosted script that itself
+ * shells out to further subprocesses) despite the coincidentally-matching
+ * value: this norm's sites spawn `gsd-tools.cjs` and nothing beneath it.
+ * Distinct from `PROBE_TIMEOUT_MS`: the same underlying `loop render-hooks`
+ * command is ALSO called at `PROBE_TIMEOUT_MS` (15000ms) elsewhere in the
+ * suite against lighter temp-project fixtures -- the two bounds are kept
+ * separate rather than equalized, since this migration never raises or
+ * lowers a value without a fresh bench citation.
+ *
+ * Shared across 7 files in batch #4518 of the ad hoc timeout literal
+ * migration, epic #4445 -- every site independently arrived at this exact
+ * value -- that is why it lives here rather than as a file-local constant.
+ */
+const LOOP_HOOK_POINT_CLI_TIMEOUT_MS = 60000;
+
+/**
+ * A security-scan shell script (secret-scan.sh, secret-scan-lint.sh,
+ * prompt-injection-scan.sh, base64-scan.sh) invoked with missing or invalid
+ * CLI arguments -- exits almost instantly with a usage error, no scan work
+ * performed at all. A distinct, lighter-weight class than a real scan of
+ * even a single tiny fixture (`QUICK_SPAWN_TIMEOUT_MS`, 10000ms) -- this is
+ * the fast-fail path, not the scan path.
+ *
+ * Deliberately a separate name from `MALFORMED_INPUT_HOOK_TIMEOUT_MS`, even
+ * though the two currently coincide at the same value: that constant bounds
+ * a Node hook script fed malformed input (a different runtime, a different
+ * failure shape), not a bash scan script given no arguments. Collapsing them
+ * would let a future, independent tune of either value silently move the
+ * other -- the same reasoning `SEAM_DEFAULT_TIMEOUT_MS` documents for its own
+ * coincidence with `HOOK_FANOUT_TIMEOUT_MS`.
+ *
+ * Shared across 2 files in batch #4519 of the ad hoc timeout literal
+ * migration, epic #4445 -- every site independently arrived at this exact
+ * value -- that is why it lives here rather than as a file-local constant.
+ */
+const SCAN_USAGE_ERROR_TIMEOUT_MS = 5000;
+
+/**
+ * A Node hook script (gsd-prompt-guard-hook.js, gsd-read-injection-scanner.js)
+ * spawned directly and fed malformed JSON on stdin -- expected to fail closed
+ * gracefully, no subprocess fan-out, no real scan work. A different operation
+ * family from `SCAN_USAGE_ERROR_TIMEOUT_MS` (a bash scan script given no
+ * arguments) despite the coincidentally-matching value -- see that constant's
+ * own doc comment for why the two are kept separate rather than merged.
+ *
+ * Shared across 2 files in batch #4519 of the ad hoc timeout literal
+ * migration, epic #4445 -- every site independently arrived at this exact
+ * value -- that is why it lives here rather than as a file-local constant.
+ */
+const MALFORMED_INPUT_HOOK_TIMEOUT_MS = 5000;
+
+/**
+ * A single `scripts/*.cjs` generator or lint script (gen-adr-index.cjs,
+ * check-glossary-refs.cjs, gen-context-index.cjs, and siblings), spawned
+ * directly and once against a small temp fixture repo -- no fan-out.
+ *
+ * Deliberately NOT `BUILD_TIMEOUT_MS`, despite the coincidentally-matching
+ * value: that constant's own doc comment scopes it specifically to
+ * `scripts/build-hooks.js` ("not a full project build"), and none of this
+ * norm's sites run that script. Reusing a constant for its number while
+ * ignoring what its comment actually describes is exactly the trap this
+ * migration exists to avoid -- see `SEAM_DEFAULT_TIMEOUT_MS` and
+ * `SCAN_USAGE_ERROR_TIMEOUT_MS` for the same reasoning applied elsewhere in
+ * this file.
+ *
+ * Shared across 7 files in batch #4520 of the ad hoc timeout literal
+ * migration, epic #4445 -- every site independently arrived at this exact
+ * value -- that is why it lives here rather than as a file-local constant.
+ */
+const GENERATOR_SCRIPT_TIMEOUT_MS = 30000;
+
+/**
+ * A git plumbing command (or a short scratch-index sequence of them) run
+ * against the REAL, current repo tree -- never a throwaway mkdtemp fixture.
+ * Distinct from `GIT_TIMEOUT_MS` (15000ms, plumbing reads against a small
+ * fixture repo) and `GIT_FIXTURE_TIMEOUT_MS` (60000ms, the shared helper's
+ * own multi-spawn fixture-CONSTRUCTION sequence) -- this norm's sites
+ * either read the real object database directly (`git ls-files`) or build a
+ * synthetic commit on a scratch index against it, which is heavier than a
+ * tiny-fixture read but not the shared helper's own six-spawn construction
+ * class. Explicitly NOT for fixture-repo CONSTRUCTION (init/config/add/commit
+ * against a throwaway mkdtemp repo) -- tests/emitted-attribution.test.cjs's
+ * own file-local `FRESH_FIXTURE_GIT_TIMEOUT_MS` covers that shape instead,
+ * after an earlier pass conflated the two and a Standards-axis review caught
+ * it.
+ *
+ * Shared across 2 files in batch #4520 of the ad hoc timeout literal
+ * migration, epic #4445 -- every site independently arrived at this exact
+ * value -- that is why it lives here rather than as a file-local constant.
+ */
+const REAL_REPO_GIT_TIMEOUT_MS = 30000;
+
 module.exports = {
   PROBE_TIMEOUT_MS,
   HOOK_FANOUT_TIMEOUT_MS,
@@ -151,4 +275,10 @@ module.exports = {
   SEAM_DEFAULT_TIMEOUT_MS,
   QUICK_SPAWN_TIMEOUT_MS,
   FIXTURE_HOOK_TIMEOUT_SECONDS,
+  STAGED_HOOK_SCRIPT_TIMEOUT_MS,
+  LOOP_HOOK_POINT_CLI_TIMEOUT_MS,
+  SCAN_USAGE_ERROR_TIMEOUT_MS,
+  MALFORMED_INPUT_HOOK_TIMEOUT_MS,
+  GENERATOR_SCRIPT_TIMEOUT_MS,
+  REAL_REPO_GIT_TIMEOUT_MS,
 };

@@ -267,6 +267,8 @@ These govern the system as it stands. Cite these.
 | [ADR-3626](3626-context-md-seam-claim-gate.md) | CONTEXT.md seam claims carry a checkable enforcement pointer | Accepted | — |
 | [ADR-3660](3660-runtime-artifact-layout-module.md) | Runtime Artifact Layout Module owns per-runtime artifact placement | Accepted | [ADR-1239](1239-gsd-embeddable-orchestration-engine.md) |
 | [ADR-3806](3806-review-dispositions-ledger.md) | Review Dispositions Ledger canonizes where and how reviews-mode records incorporate/defer decisions in PLAN.md | Accepted | — |
+| [ADR-4139](4139-compact-content-seam.md) | The compact-content seam — shrink the eager window, never the guarantee | Accepted | — |
+| [ADR-4593](4593-macos-conformance-tier-architecture.md) | A macOS-specific conformance-tier classifier, separate from the Windows-oriented one | Accepted | — |
 
 ### Proposed
 
@@ -286,7 +288,6 @@ Decided in principle, not yet ratified. Do not cite as settled architecture.
 | [ADR-3646](3646-per-task-content-resolution-seam.md) | Per-task external-tracker content-resolution seam | Proposed | — |
 | [ADR-3889](3889-process-exit-contract.md) | One exit-code registry — 0 and 1 are free, everything else is allocated | Proposed | — |
 | [ADR-3942](3942-emitted-drift-ack-commit-trailer.md) | The emitted-drift acknowledgment is PR-lifetime data — it belongs in a commit trailer, not the working tree | Proposed | — |
-| [ADR-4139](4139-compact-content-seam.md) | The compact-content seam — shrink the eager window, never the guarantee | Proposed | — |
 
 ### Superseded, Retired, and Legacy
 

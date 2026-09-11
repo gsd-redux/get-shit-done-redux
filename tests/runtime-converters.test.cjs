@@ -11,6 +11,8 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 process.env.GSD_TEST_MODE = '1';
 const {
@@ -72,6 +74,70 @@ const flatRuntimeSuites = [
     configDir: '.config/kilo',
   },
 ];
+
+describe('#4482: OpenCode conversion strips Copilot-only runtime notes', () => {
+  const convert = (body) => liveConversion.convertClaudeToOpencodeFrontmatter(
+    ['---', 'name: gsd-test', 'description: test', '---', body].join('\n'),
+  );
+
+  test('removes a Copilot-only note without leaving an empty wrapper', () => {
+    const out = convert([
+      '<runtime_note>',
+      '**Copilot (VS Code):** Use `vscode_askquestions` wherever this workflow calls `AskUserQuestion`.',
+      '</runtime_note>',
+      '',
+      '<objective>Keep me.</objective>',
+    ].join('\n'));
+
+    assert.ok(!out.includes('vscode_askquestions'));
+    assert.ok(!out.includes('<runtime_note>'));
+    assert.ok(out.includes('<objective>Keep me.</objective>'));
+  });
+
+  test('preserves runtime-neutral fallback text in a mixed note', () => {
+    const out = convert([
+      '<runtime_note>',
+      '**Copilot (VS Code):** Use `vscode_askquestions` instead of `AskUserQuestion`.',
+      '',
+      '**TEXT_MODE fallback:** Present a numbered list when interactive tools are unavailable.',
+      '</runtime_note>',
+    ].join('\n'));
+
+    assert.ok(!out.includes('vscode_askquestions'));
+    assert.match(out, /<runtime_note>\n\*\*TEXT_MODE fallback:\*\*/);
+    assert.ok(out.includes('</runtime_note>'));
+  });
+
+  test('leaves unrelated runtime notes intact', () => {
+    const note = '<runtime_note>\n**OpenCode:** Keep this runtime-specific guidance.\n</runtime_note>';
+    assert.ok(convert(note).includes(note));
+  });
+
+  test('the shared audience filter covers every non-Copilot runtime and preserves Copilot', () => {
+    const note = '<runtime_note>\n**Copilot (VS Code):** Use `vscode_askquestions`.\n\n**TEXT_MODE fallback:** Keep me.\n</runtime_note>';
+    const runtimes = [
+      'antigravity', 'augment', 'claude', 'cline', 'codebuddy', 'codex', 'cursor', 'hermes',
+      'kilo', 'kimi', 'kimi-code', 'opencode', 'pi', 'qwen', 'trae', 'windsurf', 'zcode',
+    ];
+    for (const runtime of runtimes) {
+      const out = liveConversion.filterRuntimeNotesForTarget(note, runtime);
+      assert.ok(!out.includes('vscode_askquestions'), `${runtime} must not receive the Copilot note`);
+      assert.ok(out.includes('TEXT_MODE fallback'), `${runtime} must retain neutral fallback guidance`);
+    }
+    assert.strictEqual(liveConversion.filterRuntimeNotesForTarget(note, 'copilot'), note);
+  });
+
+  test('a real OpenCode install filters mvp-phase workflow assets too', (t) => {
+    const { runMinimalInstall } = require('./helpers/install-shared.cjs');
+    const { cleanup } = require('./helpers.cjs');
+    const { configDir, root } = runMinimalInstall({ runtime: 'opencode', scope: 'global' });
+    t.after(() => cleanup(root));
+    const installed = fs.readFileSync(path.join(configDir, 'gsd-core', 'workflows', 'mvp-phase.md'), 'utf8');
+    assert.ok(!installed.includes('vscode_askquestions'));
+    assert.ok(installed.includes('TEXT_MODE fallback'));
+    assert.ok(installed.includes('<runtime_note>'));
+  });
+});
 
 for (const { label, convert, configDir } of flatRuntimeSuites) {
   describe(`${label} agent conversion (isAgent: true)`, () => {
@@ -270,6 +336,19 @@ describe('convertClaudeToKiloFrontmatter output parity: bin/install.js vs runtim
     const viaInstall = convertClaudeToKiloFrontmatter(SAMPLE_COMMAND, { isAgent: false, modelOverride: 'x' });
     const viaModule = convertViaConversionModule(SAMPLE_COMMAND, { isAgent: false, modelOverride: 'x' });
     assert.equal(viaInstall, viaModule, 'bin/install.js and runtime-artifact-conversion.cjs must emit identical command output');
+  });
+});
+
+describe('convertClaudeToOpencodeFrontmatter output parity: bin/install.js vs runtime-artifact-conversion.cjs (#4482)', () => {
+  const { convertClaudeToOpencodeFrontmatter: convertViaConversionModule } =
+    require('../gsd-core/bin/lib/runtime-artifact-conversion.cjs');
+  const input = `${SAMPLE_COMMAND}\n\n<runtime_note>\n**Copilot (VS Code):** Use vscode_askquestions.\n</runtime_note>`;
+
+  test('published and module converters filter runtime notes identically', () => {
+    assert.equal(
+      convertClaudeToOpencodeFrontmatter(input),
+      convertViaConversionModule(input),
+    );
   });
 });
 

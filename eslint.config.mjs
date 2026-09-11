@@ -39,6 +39,7 @@ import requireRegisteredExit from './eslint-rules/require-registered-exit.cjs';
 import noSwallowedPrecondition from './eslint-rules/no-swallowed-precondition.cjs';
 import noExactCaseEnvAccess from './eslint-rules/no-exact-case-env-access.cjs';
 import noAdhocTimeoutLiteral from './eslint-rules/no-adhoc-timeout-literal.cjs';
+import noRenderedTextLengthAssert from './eslint-rules/no-rendered-text-length-assert.cjs';
 
 const adhocTimeoutLiteralAllowlist = require('./eslint-rules/no-adhoc-timeout-literal.allowlist.json');
 
@@ -72,6 +73,7 @@ const localPlugin = {
     'no-swallowed-precondition': noSwallowedPrecondition,
     'no-exact-case-env-access': noExactCaseEnvAccess,
     'no-adhoc-timeout-literal': noAdhocTimeoutLiteral,
+    'no-rendered-text-length-assert': noRenderedTextLengthAssert,
   },
 };
 
@@ -717,6 +719,13 @@ export default tseslint.config(
       // Require a fixed-point termination guard on any dirname() ancestor walk —
       // a length/equality-only bound spins forever at a Windows drive root (#4020 / #4220).
       'local/no-unbounded-dirname-walk': 'error',
+      // #4590 (epic #4589 Phase 1): ban length/substring assertions on a
+      // template literal that interpolates an OS-derived path (tmpdir/homedir
+      // length differs by OS — the #4421 incident shape). Does NOT flag a bare
+      // path-returning call probed directly (e.g. `.endsWith('.md')`,
+      // `.length > 0`) — only path-in-rendered-text embedding. See ADR-456
+      // §(c) typed-surface mandate.
+      'local/no-rendered-text-length-assert': 'error',
       // Ban unbounded sync child_process spawns in tests (DEFECT.UNBOUNDED-SUBPROCESS).
       // No allowlist: the epic (#3064) migrated every site; the rule runs with no
       // exemption surface. The only sanctioned escapes are an explicit `timeout` on
