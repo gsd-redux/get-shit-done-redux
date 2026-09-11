@@ -3316,6 +3316,39 @@ describe('phase insert command', () => {
       'phase 13\'s checklist decimal must not cross-pollute phase 3\'s allocation'
     );
   });
+
+  test('#4569: --sibling flag inserts a sibling of a decimal phase via the real CLI', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+
+### Phase 3.2: Existing Decimal
+**Goal:** Test
+`
+    );
+    const result = runGsdTools('phase insert 3.2 New Thing --sibling', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phase_number, '03.3', 'sibling allocation must join phase 3\'s level, not nest under 3.2');
+  });
+
+  test('#4569: --sibling flag falls back to nested allocation when afterPhase has no decimal segment', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 3: Something
+**Goal:** Setup
+`
+    );
+    const result = runGsdTools('phase insert 3 New --sibling', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phase_number, '03.1', '--sibling on a top-level phase must fall back to nested allocation');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
