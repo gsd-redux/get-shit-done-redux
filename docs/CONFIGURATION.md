@@ -1305,6 +1305,8 @@ non-default branch — see issue #3819.
 | `{milestone}` | `milestone_branch_template` | `v1.0` |
 | `{num}` / `{quick}` | `quick_branch_template` | `260317-abc` (quick task ID) |
 
+**`phase_branch_template`'s `{slug}` when no slug can be derived** (no name segment on disk, or a name entirely outside the slug generator's scope): the `{slug}` token — and one adjacent separator — is dropped rather than substituted with a placeholder word, so `gsd/phase-{phase}-{slug}` renders `gsd/phase-08`, not `gsd/phase-08-phase`. This keeps the branch name honest about what it does not know instead of reading as a real (but wrong) name.
+
 Example quick-task branching:
 
 ```json
