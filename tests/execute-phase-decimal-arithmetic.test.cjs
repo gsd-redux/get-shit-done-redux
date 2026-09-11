@@ -99,6 +99,29 @@ describe('#4619 — execute-phase decimal/N-segment phase-number arithmetic', ()
     }
   });
 
+  test('the resulting anchored ERE matches a plain padded-integer phase and rejects near-miss scopes', () => {
+    const phaseN = runFixed('01'); // '1'
+    const planN = '3';
+    const re = `^[a-z]+\\((0*${phaseN})-(0*${planN})\\):`;
+    const cases = [
+      ['feat(01-03):', true],
+      ['feat(01.1-03):', false],
+      ['feat(011-03):', false],
+      ['feat(12-03):', false],
+    ];
+    for (const [subject, expected] of cases) {
+      const script = `echo ${JSON.stringify(subject)} | grep -qE ${JSON.stringify(re)}`;
+      let matched;
+      try {
+        execFileSync('bash', ['-c', script], { encoding: 'utf8', timeout: TIMEOUT });
+        matched = true;
+      } catch {
+        matched = false;
+      }
+      assert.equal(matched, expected, `expected ${subject} match=${expected} against ${re}`);
+    }
+  });
+
   describe('source parity — each of the 4 production sites carries the fixed logic', () => {
     test('execute-phase.md safe_resume_gate carries the fixed PHASE_NUMBER/PHASE_INT/PHASE_FRAC/PHASE_N logic', () => {
       const w = fs.readFileSync(EXECUTE_PHASE, 'utf8');
