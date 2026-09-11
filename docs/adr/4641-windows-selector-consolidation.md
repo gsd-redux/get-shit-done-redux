@@ -54,11 +54,15 @@ category is the **sole** signal — i.e. the marginal cost of keeping it:
 Two categories carried 226 of the tier's sole-signal membership; the other eight carried 41 combined.
 
 - **`process-seam-subprocess`** matches `runNode(` / `runGit(` / `runHook(` / `runGsdTools(` /
-  `gitOrThrow(` — the repo's own `tests/helpers.cjs` entry points. Going *through* the seam is the
-  opposite of a platform signal: `src/shell-command-projection.cts` takes `platform` as an injected
-  parameter, and `tests/shell-command-projection-dispatch.test.cjs` already exercises
-  PowerShell/cmd.exe/PATHEXT in-process on Linux by passing `platform: 'win32'` as data. That is
-  epic #4589's own argument for why the cutover was safe, applied against itself.
+  `gitOrThrow(` — the repo's own `tests/helpers.cjs` entry points, used by nearly every CLI test.
+  For the overwhelming majority of them, going *through* the seam is the opposite of a platform
+  signal: `src/shell-command-projection.cts` takes `platform` as an injected parameter, and
+  `tests/shell-command-projection-dispatch.test.cjs` already exercises PowerShell/cmd.exe/PATHEXT
+  in-process on Linux by passing `platform: 'win32'` as data. That is epic #4589's own argument for
+  why the cutover was safe, applied against itself. **But see the Consequences section: this
+  detector was 99% noise wrapping a real signal — the ~9 tests that spawn a real shell via
+  `runHook`'s `interpreter` option — and that signal is preserved by a narrow replacement category
+  rather than lost with the blanket one.**
 - **`hardcoded-path-vs-path-call`** requires a `path.join|resolve|…(` call *anywhere* in the file AND
   a quoted `'/…'` literal *anywhere* in the file, with no proximity. In a Node test suite both are
   universal. The defect class it gestures at is already enforced by Linux-runnable ESLint rules
@@ -132,11 +136,14 @@ Live effect is deliberately small: of the six rules that fire, four already set 
 `test-conformance` becomes the **sole** Windows selector, matching how it already is the sole macOS
 selector.
 
-### 2. Remove the two house-idiom detectors
+### 2. Remove the two house-idiom detectors, and add one narrow replacement
 
 `process-seam-subprocess` and `hardcoded-path-vs-path-call` are deleted from `CATEGORIES`.
 `hardcoded-path-vs-path-call` leaves `NOISY_FOR_SOURCE_REACHABILITY` with it (the set now holds
-`symlink-keyword` alone). Tier, measured on one tree: **547 → 255 of 931 (58.8% → 27.4%)** — 292 files removed, none added.
+`symlink-keyword` alone). Tier, measured on one tree: **547 → 255 of 931 (58.8% → 27.4%)** by removing the two detectors, then
+**255 → 264 (28.4%)** once the narrow `shell-interpreter-spawn` replacement added 9 genuinely
+shell-spawning tests back (see Consequences). Net: 283 files removed, 9 of the original drop-outs
+restored.
 
 Measured, the change is surgical: `src/` reachability is **28 → 28, zero files change status**,
 because `hardcoded-path-vs-path-call` was already excluded there and no `src/` file matches the
@@ -149,7 +156,7 @@ denominator**, not a count:
 
 | tier | measured | ceiling |
 |---|---:|---:|
-| Windows (`CONFORMANCE_TIER_FILES`) | 27.4% | **33%** |
+| Windows (`CONFORMANCE_TIER_FILES`) | 28.4% | **33%** |
 | macOS (`MACOS_CONFORMANCE_TIER_FILES`) | 21.2% | **25%** |
 
 An absolute count goes stale as the suite grows and silently stops binding; the property that
@@ -167,10 +174,48 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   the seam (`raw-child-process`, 96 files) are untouched.
 
   The drop-out set was audited rather than assumed. Of the 292, **14** have a filename suggesting
-  platform relevance (`/windows|win32|shell|path|platform|posix|crlf|symlink|exec|spawn|subprocess/i`).
-  All 14 were inspected: every one is a static/source-text analysis or a seam-mediated CLI test, not
-  a real platform-behavior test. Six carry an explicit `allow-test-rule: source-text-is-the-product`
-  or `structural-regression-guard` marker; the rest were read individually.
+  platform relevance (`/windows|win32|shell|path|platform|posix|crlf|symlink|exec|spawn|subprocess/i`),
+  and each was inspected. Six carry an explicit `allow-test-rule: source-text-is-the-product` or
+  `structural-regression-guard` marker; the rest were read individually.
+
+  **That audit initially reached the wrong conclusion, and the correction is the most important
+  thing in this ADR.** Its first pass concluded all 14 were static analyses or seam-mediated CLI
+  tests. An adversarial review found a counterexample by reading *call semantics* rather than
+  filenames: `tests/execute-phase-worktree-guard.test.cjs` calls
+
+  ```js
+  runHook('-c', [guardScript()], { interpreter: 'bash', cwd: dir, … })
+  ```
+
+  and `tests/helpers/process-seam.cjs`'s `runHook` spawns `options.interpreter` through a real
+  `spawnSync`. With `interpreter: 'bash'` that is a **real bash binary** executing a shell script
+  extracted from workflow markdown, doing real git plumbing — bash availability, quoting, and git
+  output parsing all differ on Windows. No injected-`platform` unit test stands in for that.
+
+  **The seam argument therefore needs a boundary it did not originally state.** "Going through the
+  seam is not a platform signal" is true of `src/shell-command-projection.cts`, which takes
+  `platform` as an injected parameter. It is **not** true of `tests/helpers/process-seam.cjs`, whose
+  `runHook`/`runGit` spawn real binaries. Conflating the two is what made the original
+  `process-seam-subprocess` detector look purely noisy: it was 99% noise wrapping a real signal.
+
+  The fix is a narrow replacement category rather than restoring the blanket one:
+
+  ```js
+  { name: 'shell-interpreter-spawn',
+    test: (c) => /interpreter:\s*['"`](bash|sh|zsh|dash|pwsh|powershell|cmd)['"`]/.test(c) }
+  ```
+
+  Measured 2026-09-11: 33 eligible files match, **9** of them were outside the tier and are added
+  back, taking it from 255 to **264 of 931 (27.4% → 28.4%)**, still under the 33% ceiling. Every one
+  of the 9 was confirmed by reading the matching source line — all are live `interpreter:` options on
+  real `runHook`/`runHookSeam` calls, zero comment or fixture matches. Two narrower alternatives
+  (`runGit(` alone; non-node `spawnSeam(`) were measured and rejected: each adds 9 files but **misses
+  the counterexample entirely**, because it spawns through `runHook`'s `interpreter` option rather
+  than through `runGit`.
+
+  The lesson is recorded deliberately: an audit that selects candidates by filename inherits exactly
+  the defect this ADR is fixing in the classifier. The 14-file filename sweep was the right first cut
+  and the wrong last word.
 
   The worked example is `tests/windows-robustness.test.cjs`, which was on this ADR's own first-draft
   "must remain in the tier" list **because of its filename**. It does not spawn anything: it reads

@@ -38,6 +38,21 @@ const SCRIPT = path.join(ROOT, 'scripts', 'gen-platform-conformance-tier.cjs');
 const GENERATED_PATH = path.join(ROOT, 'scripts', 'lib', 'platform-conformance-tier.generated.cjs');
 const MACOS_GENERATED_PATH = path.join(ROOT, 'scripts', 'lib', 'macos-conformance-tier.generated.cjs');
 
+// Policy ceilings, not derived facts — a bound like this has to be a number
+// somewhere, so it is hoisted here once (module scope, shared by every case
+// below that needs it) rather than left as a bare literal inside an
+// assertion. Measured at authoring time (2026-09-11): the Windows tier sat at
+// 264/931 eligible unit-suite files (~28.4%), the macOS tier at 197/931
+// (~21.2%). Each ceiling below leaves headroom over that measurement — enough
+// to absorb ordinary suite growth (new test files that happen to touch a real
+// platform signal) without going so loose that a regression toward
+// re-matching a removed house idiom (process-seam calls, path-call-plus-
+// slash-literal) would slip back under the ceiling undetected. If the
+// measured ratio moves, update the ratio in this comment and re-justify the
+// ceiling — do not just raise the number to make a red test green.
+const WINDOWS_TIER_RATIO_CEILING = 0.33;
+const MACOS_TIER_RATIO_CEILING = 0.25;
+
 // ─── Rows 1-15: classifyContent, pure fixtures ────────────────────────────────
 
 describe('classifyContent — happy-path signals', () => {
@@ -91,16 +106,25 @@ describe('classifyContent — happy-path signals', () => {
     }
   });
 
-  test('flags process-seam subprocess helpers', () => {
+  // Replaces the former 'flags process-seam subprocess helpers' case: that
+  // category ('process-seam-subprocess') was removed outright from CATEGORIES
+  // (#4641 — it matched the house test idiom of calling the process seam at
+  // all, not a genuine platform signal). Its narrower, evidence-backed
+  // replacement is 'shell-interpreter-spawn', which keys on a REAL shell
+  // binary name passed as the process-seam helpers' `interpreter` option
+  // (tests/helpers/process-seam.cjs's `runHook`/`runHookSeam`) — genuinely
+  // platform-dependent (bash/zsh/cmd availability, quoting, output parsing
+  // all differ across OSes), unlike the removed category's over-broad "any
+  // process-seam call" signal.
+  test('flags shell-interpreter-spawn (real interpreter option on a process-seam helper)', () => {
     for (const fixture of [
-      "runNode(['--check'])",
-      "runGit(['status'])",
-      "runHook(HOOK_PATH, [])",
-      "runGsdTools(['state', 'show'])",
+      "runHook(HOOK_PATH, [], { interpreter: 'bash' })",
+      "runHookSeam(HOOK_PATH, [], { interpreter: 'zsh' })",
+      "runHook(HOOK_PATH, [], { interpreter: 'cmd' })",
     ]) {
       const { needsRealOs, signals } = classifyContent(fixture);
       assert.equal(needsRealOs, true, fixture);
-      assert.ok(signals.includes('process-seam-subprocess'), fixture);
+      assert.ok(signals.includes('shell-interpreter-spawn'), fixture);
     }
   });
 
@@ -117,12 +141,18 @@ describe('classifyContent — happy-path signals', () => {
     assert.ok(signals.includes('symlink-keyword'));
   });
 
-  test('flags hardcoded path literal vs path.* call', () => {
-    const fixture = "const p = path.join(root, 'x');\nassert.equal(rendered, '/etc/passwd');";
-    const { needsRealOs, signals } = classifyContent(fixture);
-    assert.equal(needsRealOs, true);
-    assert.ok(signals.includes('hardcoded-path-vs-path-call'));
-  });
+  // The former 'flags hardcoded path literal vs path.* call' case asserted
+  // the 'hardcoded-path-vs-path-call' category, which #4641 removed outright
+  // from CATEGORIES (measured to be, alongside process-seam-subprocess, the
+  // largest driver of Windows-tier over-inclusion — a universal Node
+  // test-suite idiom, not a platform signal). Unlike process-seam-subprocess
+  // above, this category has no narrower evidence-backed replacement: no
+  // still-existing CATEGORIES entry keys on "a hardcoded path literal
+  // alongside a path.* call". Every other CATEGORIES entry already has
+  // dedicated happy-path coverage elsewhere in this describe block, so there
+  // is genuinely nothing left for a rewritten fixture here to assert; the
+  // case is retired rather than kept as dead weight around a deleted
+  // detector.
 });
 
 describe('classifyContent — negative / hostile inputs', () => {
@@ -157,13 +187,23 @@ describe('classifyContent — negative / hostile inputs', () => {
 // ─── Row 15 (#4592): NOISY_FOR_SOURCE_REACHABILITY drift guard ────────────────
 
 describe('NOISY_FOR_SOURCE_REACHABILITY (#4592)', () => {
-  test('NOISY_FOR_SOURCE_REACHABILITY exports exactly the two noisy categories', () => {
+  // #4641 removed 'hardcoded-path-vs-path-call' from CATEGORIES outright (it
+  // was the single largest driver of Windows-tier over-inclusion, a house
+  // test idiom rather than a genuine platform signal) — not merely from this
+  // exemption set. NOISY_FOR_SOURCE_REACHABILITY therefore now holds exactly
+  // one member, 'symlink-keyword': still precise enough for test-file
+  // classification but too noisy for source reachability.
+  test('NOISY_FOR_SOURCE_REACHABILITY exports exactly the one remaining noisy category', () => {
     assert.ok(NOISY_FOR_SOURCE_REACHABILITY instanceof Set,
       `expected a Set, got: ${typeof NOISY_FOR_SOURCE_REACHABILITY}`);
     assert.deepEqual(
       [...NOISY_FOR_SOURCE_REACHABILITY].sort(),
-      ['hardcoded-path-vs-path-call', 'symlink-keyword'].sort(),
-      `expected exactly the two named noisy categories, got: ${JSON.stringify([...NOISY_FOR_SOURCE_REACHABILITY])}`,
+      ['symlink-keyword'],
+      `expected exactly the one remaining noisy category, got: ${JSON.stringify([...NOISY_FOR_SOURCE_REACHABILITY])}`,
+    );
+    assert.ok(
+      !CATEGORIES.map((c) => c.name).includes('hardcoded-path-vs-path-call'),
+      'hardcoded-path-vs-path-call was removed from CATEGORIES outright (#4641), not merely exempted here',
     );
   });
 });
@@ -286,13 +326,19 @@ describe('gen-platform-conformance-tier.cjs — real repo tree (regression)', ()
       fresh = classifyTree(realTestsDir);
     }, 'a full sweep of the real tests/ tree must complete without throwing');
 
-    // Measured 546/952 at authoring time (#4591, post suite-exclusion fix) —
-    // the range below is a sanity ballpark with headroom for organic
-    // test-suite growth in either direction, not a brittle exact-match on
-    // that literal.
+    // Post-#4641 the tier is a ratio-bounded MINORITY of eligible unit-suite
+    // files (WINDOWS_TIER_RATIO_CEILING, same policy ceiling the #4641 block
+    // below enforces), not a brittle absolute-count range against a literal
+    // that goes stale every time the category set or the suite's file count
+    // changes (a hardcoded exact-count sanity range already broke once in
+    // this PR). Derived from the live tree, not a hardcoded number.
+    const { suiteOf } = require('../scripts/lib/suite-detection.cjs');
+    const eligibleCount = walkTestFiles(realTestsDir).filter((absPath) => suiteOf(absPath) === null).length;
+    const ratio = fresh.files.length / eligibleCount;
     assert.ok(
-      fresh.files.length >= 450 && fresh.files.length <= 700,
-      `expected a real, current, sanity-checked count in [450, 700], got ${fresh.files.length}`,
+      ratio > 0 && ratio <= WINDOWS_TIER_RATIO_CEILING,
+      `expected a nonzero conformance tier within the #4641 ratio ceiling (<=${WINDOWS_TIER_RATIO_CEILING * 100}%), ` +
+        `got ${fresh.files.length}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
     );
 
     delete require.cache[require.resolve(GENERATED_PATH)];
@@ -477,11 +523,19 @@ describe('gen-platform-conformance-tier.cjs — real repo tree, macOS target (re
       fresh = classifyMacosTree(realTestsDir);
     }, 'a full sweep of the real tests/ tree must complete without throwing');
 
-    // Measured 196/930 at authoring time (#4593 design doc). Sanity ballpark
-    // with headroom for organic test-suite growth, not a brittle exact match.
+    // Post-#4641 the tier is a ratio-bounded MINORITY of eligible unit-suite
+    // files (MACOS_TIER_RATIO_CEILING, same policy ceiling the #4641 block
+    // below enforces), not a brittle absolute-count range against a literal
+    // that goes stale every time the category set or the suite's file count
+    // changes (a hardcoded exact-count sanity range already broke once in
+    // this PR). Derived from the live tree, not a hardcoded number.
+    const { suiteOf } = require('../scripts/lib/suite-detection.cjs');
+    const eligibleCount = walkTestFiles(realTestsDir).filter((absPath) => suiteOf(absPath) === null).length;
+    const ratio = fresh.files.length / eligibleCount;
     assert.ok(
-      fresh.files.length >= 100 && fresh.files.length <= 350,
-      `expected a real, current, sanity-checked count in [100, 350], got ${fresh.files.length}`,
+      ratio > 0 && ratio <= MACOS_TIER_RATIO_CEILING,
+      `expected a nonzero macOS conformance tier within the #4641 ratio ceiling (<=${MACOS_TIER_RATIO_CEILING * 100}%), ` +
+        `got ${fresh.files.length}/${eligibleCount} (${(ratio * 100).toFixed(1)}%)`,
     );
 
     delete require.cache[require.resolve(MACOS_GENERATED_PATH)];
@@ -518,20 +572,10 @@ describe('gen-platform-conformance-tier.cjs — real repo tree, macOS target (re
 // ─── #4641: narrow the Windows conformance tier away from house-idiom noise ───
 
 describe('conformance tier narrowing (#4641)', () => {
-  // Policy ceilings, not derived facts — a bound like this has to be a number
-  // somewhere, so it is hoisted here once rather than left as a bare literal
-  // inside an assertion. Measured at authoring time (2026-09-11): the Windows
-  // tier sat at 255/931 eligible unit-suite files (~27.4%), the macOS tier at
-  // 197/931 (~21.2%). Each ceiling below leaves a few points of headroom over
-  // that measurement — enough to absorb ordinary suite growth (new test files
-  // that happen to touch a real platform signal) without going so loose that
-  // a regression toward re-matching a removed house idiom (process-seam
-  // calls, path-call-plus-slash-literal) would slip back under the ceiling
-  // undetected. If the measured ratio moves, update the ratio in this comment
-  // and re-justify the ceiling — do not just raise the number to make a red
-  // test green.
-  const WINDOWS_TIER_RATIO_CEILING = 0.33;
-  const MACOS_TIER_RATIO_CEILING = 0.25;
+  // WINDOWS_TIER_RATIO_CEILING / MACOS_TIER_RATIO_CEILING are hoisted to
+  // module scope above (shared with the real-repo-tree regression case
+  // further down, which needs the same ceiling rather than a second
+  // independently-drifting copy of it).
 
   test('conformance tier stays a tier, not the suite (#4641)', () => {
     const realTestsDir = path.join(ROOT, 'tests');
@@ -681,6 +725,46 @@ describe('conformance tier narrowing (#4641)', () => {
         );
       }
     }
+  });
+
+  test('CATEGORIES contains the shell-interpreter-spawn detector (#4641)', () => {
+    const names = CATEGORIES.map((c) => c.name);
+    assert.ok(
+      names.includes('shell-interpreter-spawn'),
+      `CATEGORIES must contain shell-interpreter-spawn: ${JSON.stringify(names)}`,
+    );
+  });
+
+  test('a real interpreter: bash spawn (the adversarial-review finding) still classifies IN (#4641)', () => {
+    // tests/execute-phase-worktree-guard.test.cjs calls tests/helpers/
+    // process-seam.cjs's runHook(..., { interpreter: 'bash', ... }), which
+    // spawns a REAL bash binary via spawnSync. That is a genuine
+    // platform-dependent signal (bash availability, quoting, git output
+    // parsing all differ across OSes) that the removed
+    // 'process-seam-subprocess' category used to catch incidentally, and
+    // which silently dropped out of the tier when that category was removed
+    // — an adversarial review caught this as a real false negative (#4641).
+    // Assert directly against the real file's content so nobody can
+    // "fix" a regression here by re-editing a hand-written fixture string.
+    const absPath = path.join(ROOT, 'tests/execute-phase-worktree-guard.test.cjs');
+    const content = fs.readFileSync(absPath, 'utf8');
+    const { needsRealOs, signals } = classifyContent(content);
+    assert.equal(needsRealOs, true, 'tests/execute-phase-worktree-guard.test.cjs');
+    assert.ok(
+      signals.includes('shell-interpreter-spawn'),
+      `expected shell-interpreter-spawn among signals, got: ${JSON.stringify(signals)}`,
+    );
+  });
+
+  test('runHook without an interpreter option does not match shell-interpreter-spawn (#4641)', () => {
+    // The detector must key on a real shell name being passed as the
+    // `interpreter` option, not on the mere presence of `runHook(...)` —
+    // the default (no `interpreter:` option) spawns node, not a real shell,
+    // and is not a platform signal.
+    const fixture = "runHook(HOOK_PATH, [], { cwd: dir });\nassert.equal(result.exitCode, 0);\n";
+    const { needsRealOs, signals } = classifyContent(fixture);
+    assert.equal(needsRealOs, false);
+    assert.ok(!signals.includes('shell-interpreter-spawn'), JSON.stringify(signals));
   });
 
   test('a source-text-analysis test drops out of the tier even when its filename says windows (#4641)', () => {

@@ -267,11 +267,13 @@ jobs:
     timeout-minutes: 32
     env:
       GSD_PLUGIN_ROOT: .ci-gsd-plugin-root-disabled
-      # #2665: a live-config leak fails the run on Linux/macOS lanes. Windows
-      # stays report-only: the guard's first run found PRE-EXISTING USERPROFILE
-      # leaks there (~190 test sites sandbox HOME alone), a documented separate
-      # class — promote once that sweep lands (see live-config-guard.cjs SEVERITY).
-      GSD_STRICT_LIVE_CONFIG_GUARD: ${{ matrix.os != 'windows-latest' && '1' || '' }}
+      # #2665 / #4641: this job's matrix is ubuntu-only as of #4641 (the
+      # `scope: windows` rows moved to test-conformance, see the timeout
+      # comment above), so the live-config leak guard is strict unconditionally
+      # here. The Windows report-only carve-out (PRE-EXISTING USERPROFILE leaks,
+      # ~190 test sites sandbox HOME alone) now lives solely on jobs.test-conformance
+      # — promote it there once that sweep lands (see live-config-guard.cjs SEVERITY).
+      GSD_STRICT_LIVE_CONFIG_GUARD: '1'
       # #2854: pin the emitted gate's baseline to the SAME commit the tree was merged
       # with. "Rebase check" merges `pull_request.base.sha` (pinned by #2472 so all 12
       # matrix jobs agree on one tree), but `resolveBase()` otherwise falls through to

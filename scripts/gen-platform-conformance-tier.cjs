@@ -163,6 +163,32 @@ const CATEGORIES = [
     },
   },
   {
+    name: 'shell-interpreter-spawn',
+    // Added after an adversarial review (#4641) caught a REAL false negative
+    // introduced by removing 'process-seam-subprocess' above: that removal
+    // also dropped the only coverage for tests/execute-phase-worktree-guard.
+    // test.cjs, which calls tests/helpers/process-seam.cjs's `runHook(...,
+    // { interpreter: 'bash', ... })`. `runHook` spawns `options.interpreter`
+    // via a real `spawnSync`, so `interpreter: 'bash'` is a genuine real-shell
+    // invocation — bash availability, quoting, and git output parsing all
+    // differ across OSes. This is deliberately narrower than (and does not
+    // reintroduce) 'process-seam-subprocess': the rationale that going
+    // through the injected-`platform`-parameter seam in
+    // src/shell-command-projection.cts is NOT a platform signal (because the
+    // caller supplies `platform` itself) holds for THAT seam only — it does
+    // not hold for `runHook`'s `interpreter` option, which spawns a real
+    // interpreter binary rather than taking platform as injected data.
+    // Measured 2026-09-11: 33 eligible files match this pattern; 9 of them
+    // were outside the committed Windows tier and are added back by this
+    // change, taking the tier from 255 to 264 of 931 eligible files (27.4% ->
+    // 28.4%), still under the 33% ceiling. All 9 additions were verified by
+    // reading the matching source line: 0 false positives, every match is a
+    // live `interpreter:` option on a real `runHook`/`runHookSeam` call. As
+    // with all counts in this file, these are dated point-in-time
+    // measurements, not standing facts.
+    test: (content) => /interpreter:\s*['"`](bash|sh|zsh|dash|pwsh|powershell|cmd)['"`]/.test(content),
+  },
+  {
     name: 'symlink-keyword',
     // A leading `\b` with no trailing one, case-insensitive: this is
     // deliberately NOT `/\bsymlink\b|\bSymlink\b/` (that literal pair would
