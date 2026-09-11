@@ -1688,6 +1688,44 @@ describe('commit command', () => {
     assert.ok(committedFile.includes('# Context'), 'phase commit must land on the phase branch');
   });
 
+  // #4126: an undeliverable phase_slug (a bare phase directory with no
+  // slug remainder) must never produce a branch name ending in the literal
+  // word "phase" — that reads as a real (but wrong) slug rather than
+  // honestly reflecting that no slug was derivable. Routed through the
+  // shared renderPhaseBranchName owner (src/phase-id.cts) so this and
+  // init.cts's cmdInitExecutePhase can never diverge on the fallback.
+  test('#4126: an undeliverable phase_slug drops the token instead of substituting the literal "phase"', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'config.json'),
+      JSON.stringify({
+        commit_docs: true,
+        branching_strategy: 'phase',
+        phase_branch_template: 'gsd/phase-{phase}-{slug}',
+      })
+    );
+    // Bare phase directory — no slug remainder after the phase token, so
+    // phase-locator resolves phase_slug: null for it.
+    fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n## Phase 1: Setup\nGoal: Initial setup\n'
+    );
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'phases', '01', '01-CONTEXT.md'), '# Context\n');
+
+    const result = runGsdTools(
+      'commit "docs(01): add context" --files .planning/phases/01/01-CONTEXT.md',
+      tmpDir
+    );
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.committed, true, 'should have committed');
+
+    const branch = gitOrThrow(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: tmpDir }).trim();
+    assert.ok(!branch.endsWith('-phase'), `branch name must not end in the literal "-phase": ${branch}`);
+    assert.strictEqual(branch, 'gsd/phase-01', 'expected the {slug} token to be dropped cleanly');
+  });
+
   test('decimal phase numbers are captured correctly in branching strategy', () => {
     // Configure phase branching strategy
     fs.writeFileSync(
