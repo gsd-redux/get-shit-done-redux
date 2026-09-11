@@ -142,8 +142,8 @@ selector.
 `hardcoded-path-vs-path-call` leaves `NOISY_FOR_SOURCE_REACHABILITY` with it (the set now holds
 `symlink-keyword` alone). Tier, measured on one tree: **547 → 255 of 931 (58.8% → 27.4%)** by removing the two detectors, then
 **255 → 264 (28.4%)** once the narrow `shell-interpreter-spawn` replacement added 9 genuinely
-shell-spawning tests back (see Consequences). Net: 283 files removed, 9 of the original drop-outs
-restored.
+shell-spawning tests back, and **264 → 265 (28.5%)** once `ALWAYS_REAL_OS` pinned one further file
+(see Consequences). Net: 282 files removed, 10 of the original drop-outs restored.
 
 Measured, the change is surgical: `src/` reachability is **28 → 28, zero files change status**,
 because `hardcoded-path-vs-path-call` was already excluded there and no `src/` file matches the
@@ -156,7 +156,7 @@ denominator**, not a count:
 
 | tier | measured | ceiling |
 |---|---:|---:|
-| Windows (`CONFORMANCE_TIER_FILES`) | 28.4% | **33%** |
+| Windows (`CONFORMANCE_TIER_FILES`) | 28.5% | **33%** |
 | macOS (`MACOS_CONFORMANCE_TIER_FILES`) | 21.2% | **25%** |
 
 An absolute count goes stale as the suite grows and silently stops binding; the property that
@@ -206,7 +206,8 @@ today's emitted value, which #4641 rules out explicitly as a non-bound.
   ```
 
   Measured 2026-09-11: 33 eligible files match, **9** of them were outside the tier and are added
-  back, taking it from 255 to **264 of 931 (27.4% → 28.4%)**, still under the 33% ceiling. Every one
+  back, taking it from 255 to **264 of 931 (27.4% → 28.4%)** — and to **265 (28.5%)** once
+  `ALWAYS_REAL_OS` pins one further file, which is the committed total. Still under the 33% ceiling. Every one
   of the 9 was confirmed by reading the matching source line — all are live `interpreter:` options on
   real `runHook`/`runHookSeam` calls, zero comment or fixture matches. Two narrower alternatives
   (`runGit(` alone; non-node `spawnSeam(`) were measured and rejected: each adds 9 files but **misses
