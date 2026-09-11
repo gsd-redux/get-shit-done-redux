@@ -277,6 +277,19 @@ why this narrowing rests on an enforced invariant rather than on optimism.
   Rejected on evidence; the issue's claim is corrected here.
 - **An absolute file-count ceiling.** Rejected: goes stale under suite growth and stops binding
   without anyone noticing — the same failure shape as Phase 2's "the list exists" criterion.
+- **A companion "sole-signal concentration" ceiling** — no single category may be the sole signal for
+  more than N% of the tier. Proposed because the ratio ceiling has a real Goodhart weakness: a ratio
+  can be satisfied by inflating the *denominator*, so adding OS-agnostic tests loosens it without
+  narrowing the tier. Concentration looked like the harder-to-fake companion, since the original
+  defect was precisely one detector carrying half the tier. **Measured, and rejected on the numbers.**
+  Post-fix the peak sole-signal share is `raw-child-process` at 53/265 = **20.0%**, against the two
+  historic offenders at 21.6% (`process-seam-subprocess`) and 19.8% (`hardcoded-path-vs-path-call`).
+  Any threshold above 20% would have missed the original defect; any threshold below it fails today
+  on a category that is entirely legitimate — a test that spawns a real subprocess genuinely needs a
+  real OS. Concentration cannot separate "a big honest category" from "a big dishonest one"; the
+  discriminator is whether the signal is platform-meaningful, which is a judgement no threshold
+  encodes. The ratio ceiling stands alone, with its denominator-inflation weakness disclosed rather
+  than papered over by a second gate that does not actually bind.
 - **Relaxing `raw-child-process` to drop its `content.includes('child_process')` precondition.**
   Investigated and rejected on measurement. The narrowing appeared to unmask a false negative:
   `tests/windows-robustness.test.cjs` contains `spawnSync(` and `execFileSync(` yet does not match
