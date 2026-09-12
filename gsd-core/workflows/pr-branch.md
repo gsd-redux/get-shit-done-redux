@@ -352,6 +352,32 @@ for HASH in $(printf '%s' "$INCLUDED_COMMITS"); do
     git checkout HEAD -- "$P" 2>/dev/null || true
   done
 
+  # #4606: a conflict on a "third bucket" path (`.planning/` — not `$FORBIDDEN_RE`
+  # transient, not `$STRUCTURAL_RE` structural — the same bucket `verify`'s
+  # `$OTHER` reports) is not a real conflict either, and needs its own
+  # resolution distinct from the filter loop above. Such a path is never
+  # per-commit replayed by classification — a commit touching ONLY a
+  # third-bucket path is EXCLUDEd — so when a LATER included commit (structural
+  # or code + that same path) reuses it, the diff's context can predate
+  # whatever the PR branch actually has, and cherry-pick reports a genuine
+  # content conflict on a path this command was never asked to filter.
+  # `git checkout --theirs` resolves it correctly by construction: in a
+  # cherry-pick's 3-way merge, "theirs" IS $HASH's own content for that path —
+  # exactly the chained final value the path is owed, the same guarantee
+  # `create_pr_branch` already gives structural files. A path $HASH deletes has
+  # no "theirs" blob to check out, so fall back to accepting the deletion (the
+  # `verify` step's `$PLANNING_DELETIONS` gate independently catches this if
+  # `$TARGET` ever legitimately tracked that path).
+  for P in $(git diff --name-only --diff-filter=U); do
+    case "$P" in
+      .planning/*) ;;
+      *) continue ;;
+    esac
+    if echo "$P" | grep -Eq "$FORBIDDEN_RE"; then continue; fi
+    if echo "$P" | grep -Eq "$STRUCTURAL_RE"; then continue; fi
+    git checkout --theirs -- "$P" 2>/dev/null && git add -- "$P" || git rm -f -q -- "$P" 2>/dev/null || true # gsd-scan-ignore: #4606 -- restages a path already committed to $CURRENT_BRANCH's own history onto the disposable $PR_BRANCH; not a commit_docs bypass (#1783/#3585), which guards against staging .planning/ content that was never committed at all
+  done
+
   # Anything still unmerged is a REAL conflict, outside the filter. Halt — do not
   # improvise a resolution and do not continue, which would drop the rest of the queue.
   # Unwind first: this loop runs in the user's own checkout, so exiting mid-sequence
