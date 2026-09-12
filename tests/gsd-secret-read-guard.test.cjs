@@ -447,7 +447,11 @@ describe('regressions: #4580 — final-extension classification', () => {
     }
   });
 
-  describe('cross-arm parity — Read, exact-literal Grep glob, and Bash must agree', () => {
+  // NOTE: Read and Bash both route through the shared `namesSecret` predicate,
+  // so they are not independent of each other here — only the Grep glob arm
+  // (classifyGrepGlob) is a genuinely separate implementation. This describe
+  // checks that all three still agree, not that Read/Bash are independent.
+  describe('cross-arm parity — Read, exact-literal Grep glob, and Bash must agree (Read/Bash share namesSecret; Grep glob is the independent arm)', () => {
     for (const name of TEMPLATES) {
       test(`Read, glob and Bash all allow ${JSON.stringify(name)}`, () => {
         assertAllowed(runHook(read(name)), `read:${name}`);
@@ -460,6 +464,26 @@ describe('regressions: #4580 — final-extension classification', () => {
         assertBlocked(runHook(read(name)), `read:${name}`, { tool: 'Read', path: name });
         assertBlocked(runHook(grep({ glob: name })), `glob:${name}`, { tool: 'Grep', path: name });
         assertBlocked(runHook(bash('cat ' + name)), `bash:${name}`, { tool: 'Bash', path: name });
+      });
+    }
+
+    // #4651: TEMPLATES/SECRETS above are all bare basenames, so this loop
+    // never exercised path segmentation and could not have caught the
+    // Read-vs-Grep-glob divergence on a backslash-bearing path (`lastSegment`
+    // splits on `/` AND `\`; classifyGrepGlob used to split on `/` only).
+    // Cover both separators explicitly.
+    const pathBlocks = ['config/.env', 'config\\.env'];
+    for (const name of pathBlocks) {
+      test(`Read and Grep glob agree: both block ${JSON.stringify(name)}`, () => {
+        assertBlocked(runHook(read(name)), `read:${name}`, { tool: 'Read', path: name });
+        assertBlocked(runHook(grep({ glob: name })), `glob:${name}`, { tool: 'Grep', path: name });
+      });
+    }
+    const pathAllows = ['config/.env.local.example', 'config\\.env.local.example'];
+    for (const name of pathAllows) {
+      test(`Read and Grep glob agree: both allow ${JSON.stringify(name)}`, () => {
+        assertAllowed(runHook(read(name)), `read:${name}`);
+        assertAllowed(runHook(grep({ glob: name })), `glob:${name}`);
       });
     }
   });

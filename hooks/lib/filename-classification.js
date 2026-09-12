@@ -38,6 +38,11 @@ function finalExtension(name) {
  * can be bypassed by any of them. This is not cosmetic tidying — it closes
  * that Windows path-alias bypass.
  *
+ * This runs UNCONDITIONALLY on every host platform (macOS, Linux, Windows),
+ * not only when actually running on Windows: the guard must behave
+ * identically everywhere, and a name is judged by what Win32 would resolve
+ * it to, regardless of what OS the hook happens to run on.
+ *
  * @param {*} name
  * @returns {string}
  */
@@ -48,4 +53,12 @@ function normalizeWindowsBasename(name) {
   return name.slice(0, end);
 }
 
-module.exports = { finalExtension, normalizeWindowsBasename };
+// Last `/`- or `\`-separated segment, ignoring trailing separators. A string
+// with no separator IS its own last segment.
+function lastSegment(tok) {
+  const s = tok.replace(/[\\/]+$/, '');
+  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+  return i === -1 ? s : s.slice(i + 1);
+}
+
+module.exports = { finalExtension, normalizeWindowsBasename, lastSegment };

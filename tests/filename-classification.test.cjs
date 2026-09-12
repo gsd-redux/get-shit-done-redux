@@ -57,7 +57,7 @@ test('finalExtension returns the last segment, not the whole multi-dot suffix (#
   assert.notEqual(finalExtension('local.example'), 'local.example');
 });
 
-test('fc: finalExtension never contains a dot and is always a suffix of the input', () => {
+test('fc: finalExtension never contains a dot, is always a suffix of the input, and preserves content', () => {
   fc.assert(
     fc.property(
       fc.string(),
@@ -65,6 +65,9 @@ test('fc: finalExtension never contains a dot and is always a suffix of the inpu
         const ext = finalExtension(s);
         assert.equal(ext.includes('.'), false);
         assert.equal(s.endsWith(ext), true);
+        const i = s.lastIndexOf('.');
+        const expected = i === -1 ? s : s.slice(i + 1);
+        assert.equal(ext, expected);
       },
     ),
     { seed: 42, numRuns: 200 },
@@ -121,7 +124,7 @@ test('normalizeWindowsBasename: non-string / nullish inputs are inert, never thr
   assert.equal(normalizeWindowsBasename(42), '');
 });
 
-test('fc: normalizeWindowsBasename never ends with a dot or space and is always a prefix of the input', () => {
+test('fc: normalizeWindowsBasename never ends with a dot or space, is always a prefix of the input, and only removes trailing dot/space characters', () => {
   fc.assert(
     fc.property(
       fc.string(),
@@ -130,6 +133,9 @@ test('fc: normalizeWindowsBasename never ends with a dot or space and is always 
         assert.equal(n.endsWith('.'), false);
         assert.equal(n.endsWith(' '), false);
         assert.equal(s.startsWith(n), true);
+        const removed = s.slice(n.length);
+        assert.match(removed, /^[. ]*$/);
+        if (!/[. ]$/.test(s)) assert.equal(n, s);
       },
     ),
     { seed: 42, numRuns: 200 },

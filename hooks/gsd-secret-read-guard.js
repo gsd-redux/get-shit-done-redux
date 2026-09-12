@@ -98,7 +98,7 @@
 'use strict';
 
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
-const { finalExtension, normalizeWindowsBasename } = require('./lib/filename-classification.js');
+const { finalExtension, normalizeWindowsBasename, lastSegment } = require('./lib/filename-classification.js');
 
 // Fail open on a hook-internal error (see header). Declared ONCE so the
 // outer catch states its policy explicitly (#3911).
@@ -171,13 +171,6 @@ function isSecretBasename(name) {
     return suffix !== '' && !NON_SECRET_ENV_SUFFIXES.has(finalExtension(suffix).toLowerCase());
   }
   return false;
-}
-
-// Last `/`- or `\`-separated segment, ignoring trailing separators.
-function lastSegment(tok) {
-  const s = tok.replace(/[\\/]+$/, '');
-  const i = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
-  return i === -1 ? s : s.slice(i + 1);
 }
 
 // True when the token's basename — or the basename of the part after its
@@ -289,10 +282,14 @@ function globAltSelectsSecret(alt) {
 
 // Returns null (allowed), 'secret-read', or 'glob-too-complex'.
 function classifyGrepGlob(glob) {
-  const segIdx = glob.replace(/\/+$/, '').lastIndexOf('/');
+  // Segment via the SAME `lastSegment` helper Read/Bash use (namesSecret),
+  // rather than a hand-rolled forward-slash-only split — the two used to
+  // diverge on a backslash-bearing glob (`config\.env`), which `lastSegment`
+  // reduces to `.env` but a `/`-only split left untouched, letting it escape
+  // this arm's predicate while Read/Bash still blocked it.
   // Case-fold the last segment (GLOB_PROBES are lower case) so `.ENV*` and
   // `*.ENV` select the secret namespace on case-insensitive filesystems.
-  const segment = (segIdx === -1 ? glob : glob.slice(segIdx + 1)).toLowerCase();
+  const segment = lastSegment(glob).toLowerCase();
   const alts = expandBraces(segment);
   if (alts === null) return 'glob-too-complex';
   return alts.some(globAltSelectsSecret) ? 'secret-read' : null;
