@@ -17,7 +17,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fc = require('./helpers/fast-check-setup.cjs');
-const { finalExtension } = require('../hooks/lib/filename-classification.js');
+const { finalExtension, normalizeWindowsBasename } = require('../hooks/lib/filename-classification.js');
 
 test('finalExtension: a dotless string is its own final extension', () => {
   assert.equal(finalExtension('example'), 'example');
@@ -65,6 +65,71 @@ test('fc: finalExtension never contains a dot and is always a suffix of the inpu
         const ext = finalExtension(s);
         assert.equal(ext.includes('.'), false);
         assert.equal(s.endsWith(ext), true);
+      },
+    ),
+    { seed: 42, numRuns: 200 },
+  );
+});
+
+test('normalizeWindowsBasename: strips a single trailing dot', () => {
+  assert.equal(normalizeWindowsBasename('.env.'), '.env');
+});
+
+test('normalizeWindowsBasename: strips repeated trailing dots', () => {
+  assert.equal(normalizeWindowsBasename('.env..'), '.env');
+});
+
+test('normalizeWindowsBasename: strips a trailing space', () => {
+  assert.equal(normalizeWindowsBasename('.env '), '.env');
+});
+
+test('normalizeWindowsBasename: strips a trailing dot-then-space', () => {
+  assert.equal(normalizeWindowsBasename('.env. '), '.env');
+});
+
+test('normalizeWindowsBasename: strips a trailing space-then-dot', () => {
+  assert.equal(normalizeWindowsBasename('.env .'), '.env');
+});
+
+test('normalizeWindowsBasename: strips a trailing dot off .secrets', () => {
+  assert.equal(normalizeWindowsBasename('.secrets.'), '.secrets');
+});
+
+test('normalizeWindowsBasename: strips only the trailing dot, not interior dots', () => {
+  assert.equal(normalizeWindowsBasename('.env.local.'), '.env.local');
+});
+
+test('normalizeWindowsBasename: all dots strips to empty string', () => {
+  assert.equal(normalizeWindowsBasename('...'), '');
+});
+
+test('normalizeWindowsBasename: a name with no trailing dot/space is unchanged', () => {
+  assert.equal(normalizeWindowsBasename('.env'), '.env');
+});
+
+test('normalizeWindowsBasename: .envrc is unchanged', () => {
+  assert.equal(normalizeWindowsBasename('.envrc'), '.envrc');
+});
+
+test('normalizeWindowsBasename: empty string returns empty string', () => {
+  assert.equal(normalizeWindowsBasename(''), '');
+});
+
+test('normalizeWindowsBasename: non-string / nullish inputs are inert, never throw', () => {
+  assert.equal(normalizeWindowsBasename(null), '');
+  assert.equal(normalizeWindowsBasename(undefined), '');
+  assert.equal(normalizeWindowsBasename(42), '');
+});
+
+test('fc: normalizeWindowsBasename never ends with a dot or space and is always a prefix of the input', () => {
+  fc.assert(
+    fc.property(
+      fc.string(),
+      (s) => {
+        const n = normalizeWindowsBasename(s);
+        assert.equal(n.endsWith('.'), false);
+        assert.equal(n.endsWith(' '), false);
+        assert.equal(s.startsWith(n), true);
       },
     ),
     { seed: 42, numRuns: 200 },

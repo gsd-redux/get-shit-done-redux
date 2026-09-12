@@ -70,13 +70,15 @@ function assertBlocked(r, label, { code = 'secret-read', tool, path: expectedPat
 describe('gsd-secret-read-guard: Read', () => {
   const blocks = ['.env', '/proj/.env', '.env.local', '/p/.env.production', '.secrets', 'C:\\proj\\.env', '/p/.secrets/',
     // Case-insensitive: these ARE the secret file on macOS/Windows.
-    '.ENV', '.Secrets', '.Env.production', '/P/.SECRETS'];
+    '.ENV', '.Secrets', '.Env.production', '/P/.SECRETS',
+    // Windows trailing-dot alias: strips to `.env` (#4651).
+    '.env.'];
   for (const p of blocks) {
     test(`blocks Read of ${JSON.stringify(p)}`, () => {
       assertBlocked(runHook(read(p)), p, { tool: 'Read', path: p });
     });
   }
-  const allows = ['.env.example', '.env.sample', '.env.template', '.env.dist', '.env.EXAMPLE', '.ENV.EXAMPLE', '.envrc', 'env', 'foo.env', '/p/src/index.ts', '.environment', '.env.'];
+  const allows = ['.env.example', '.env.sample', '.env.template', '.env.dist', '.env.EXAMPLE', '.ENV.EXAMPLE', '.envrc', 'env', 'foo.env', '/p/src/index.ts', '.environment'];
   for (const p of allows) {
     test(`allows Read of ${JSON.stringify(p)}`, () => {
       assertAllowed(runHook(read(p)), p);
@@ -393,8 +395,22 @@ describe('regressions: #4580 — final-extension classification', () => {
         assertBlocked(runHook(read(p)), p, { tool: 'Read', path: p });
       });
     }
-    test('does not change unrelated allow: .env. stays allowed', () => {
-      assertAllowed(runHook(read('.env.')), '.env.');
+    describe('Windows trailing dot/space aliases are the protected file (#4651)', () => {
+      // Win32 strips trailing dots and spaces from each path component when
+      // resolving a filesystem path, so `.env.`, `.env..`, `.env `, etc. all
+      // resolve to the same on-disk file as `.env` — these are ALIASES, not
+      // distinct names, and must be blocked like the name they alias.
+      const aliasBlocks = ['.env.', '.env..', '.env ', '.env. ', '.env .', '.secrets.', '.secrets ', '.env.local.'];
+      for (const p of aliasBlocks) {
+        test(`blocks Read of Windows alias ${JSON.stringify(p)}`, () => {
+          assertBlocked(runHook(read(p)), p, { tool: 'Read', path: p });
+        });
+      }
+      // `.env.example.` aliases the already-trusted template `.env.example`,
+      // not the secret `.env` — it must stay allowed.
+      test('allows Read of .env.example. (aliases the trusted template)', () => {
+        assertAllowed(runHook(read('.env.example.')), '.env.example.');
+      });
     });
     test('does not change unrelated allow: .envrc stays allowed', () => {
       assertAllowed(runHook(read('.envrc')), '.envrc');
@@ -446,6 +462,19 @@ describe('regressions: #4580 — final-extension classification', () => {
         assertBlocked(runHook(bash('cat ' + name)), `bash:${name}`, { tool: 'Bash', path: name });
       });
     }
+  });
+});
+
+describe('regressions: #4651 — trailing-dot normalization must not touch prose', () => {
+  // Pins the header's "No whitespace trimming" guarantee for Bash PROSE:
+  // trailing-alias normalization applies to file-path/operand classification
+  // only, not to commit-message text, so leading/interior whitespace in a
+  // commit message must still read as prose, not as a secret operand.
+  test('allows a commit message mentioning .env', () => {
+    assertAllowed(runHook(bash('git commit -m "fix: .env parsing"')), 'commit message');
+  });
+  test('allows a commit message with .env at the end of prose', () => {
+    assertAllowed(runHook(bash('git commit -m "update .env"')), 'commit message 2');
   });
 });
 

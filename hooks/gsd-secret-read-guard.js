@@ -37,8 +37,13 @@
 //   `.env.local.example`.
 //   A token containing `:` is also tested on the part after its LAST `:`,
 //   so `git show HEAD:.env`, `origin/main:config/.env` and `C:\proj\.env`
-//   are caught without git-specific parsing. No whitespace trimming: the
-//   commit message `fix: .env parsing` yields ` .env parsing`, not a name.
+//   are caught without git-specific parsing. Leading/interior whitespace is
+//   still NOT trimmed: the commit message `fix: .env parsing` yields
+//   ` .env parsing`, which is prose, not a name. TRAILING dots and spaces ARE
+//   stripped from the basename before classification (`.env.`, `.env..`,
+//   `.env `, `.env. ` all normalize to `.env`), because Win32 strips trailing
+//   dots and spaces from each path component, so these are aliases for the
+//   same on-disk file, not distinct names.
 //
 // Bash analysis is a two-pass token scan, not a shell:
 //   pass 1 tokenizes with quote state, comments, redirect operators (with fd
@@ -93,7 +98,7 @@
 'use strict';
 
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
-const { finalExtension } = require('./lib/filename-classification.js');
+const { finalExtension, normalizeWindowsBasename } = require('./lib/filename-classification.js');
 
 // Fail open on a hook-internal error (see header). Declared ONCE so the
 // outer catch states its policy explicitly (#3911).
@@ -156,9 +161,13 @@ const GLOB_PROBES = [
 // ---------------------------------------------------------------------------
 
 function isSecretBasename(name) {
-  if (name === '.env' || name === '.secrets') return true;
-  if (name.startsWith('.env.')) {
-    const suffix = name.slice('.env.'.length);
+  // Win32 strips trailing dots/spaces per path component, so `.env.`,
+  // `.env ` etc. resolve to the real `.env` on Windows — normalize FIRST so
+  // those aliases can't bypass classification.
+  const n = normalizeWindowsBasename(name);
+  if (n === '.env' || n === '.secrets') return true;
+  if (n.startsWith('.env.')) {
+    const suffix = n.slice('.env.'.length);
     return suffix !== '' && !NON_SECRET_ENV_SUFFIXES.has(finalExtension(suffix).toLowerCase());
   }
   return false;

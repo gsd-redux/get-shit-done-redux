@@ -26,4 +26,26 @@ function finalExtension(name) {
   return i === -1 ? name : name.slice(i + 1);
 }
 
-module.exports = { finalExtension };
+/**
+ * Strips ALL trailing dots and spaces from `name`, repeatedly, from the end
+ * of the basename.
+ *
+ * WHY: Win32 strips trailing dots and trailing spaces from each path
+ * component when resolving a filesystem path — `.env.`, `.env..`, `.env `,
+ * and `.env. ` all resolve to the same on-disk file as `.env` on Windows.
+ * These are therefore ALIASES for the protected name, not distinct names,
+ * and a guard that classifies the literal string without normalizing first
+ * can be bypassed by any of them. This is not cosmetic tidying — it closes
+ * that Windows path-alias bypass.
+ *
+ * @param {*} name
+ * @returns {string}
+ */
+function normalizeWindowsBasename(name) {
+  if (typeof name !== 'string' || name === '') return '';
+  let end = name.length;
+  while (end > 0 && (name[end - 1] === '.' || name[end - 1] === ' ')) end--;
+  return name.slice(0, end);
+}
+
+module.exports = { finalExtension, normalizeWindowsBasename };
