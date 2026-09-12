@@ -3,24 +3,21 @@
 /**
  * filename-classification.test.cjs
  *
- * Unit tests for hooks/lib/filename-classification.js (does not exist yet —
- * #4580). Exports two pure, inert helpers used to classify `.env.<suffix>`
- * basenames without conflating "the whole tail after the first dot" with
- * "the final extension":
+ * Unit tests for hooks/lib/filename-classification.js. Exports one pure,
+ * inert helper used to classify `.env.<suffix>` basenames by their FINAL
+ * extension only:
  *
  *   finalExtension(name) -> segment after the LAST dot; the whole string
  *                           when there is no dot; '' for empty/non-string.
- *   fullSuffix(name)     -> everything after the FIRST dot; '' when there
- *                           is no dot / empty / non-string.
  *
- * The two must disagree on multi-segment names (e.g. `local.example`) —
- * that disagreement is the entire reason the helper exists.
+ * #4580 was caused by comparing the whole tail after the first dot (e.g.
+ * `local.example`) against a set of final extensions (e.g. `example`).
  */
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fc = require('./helpers/fast-check-setup.cjs');
-const { finalExtension, fullSuffix } = require('../hooks/lib/filename-classification.js');
+const { finalExtension } = require('../hooks/lib/filename-classification.js');
 
 test('finalExtension: a dotless string is its own final extension', () => {
   assert.equal(finalExtension('example'), 'example');
@@ -52,10 +49,12 @@ test('finalExtension: non-string / nullish inputs are inert, never throw', () =>
   assert.equal(finalExtension(42), '');
 });
 
-test('fullSuffix and finalExtension DIFFER on a multi-segment name — the reason this helper exists', () => {
-  assert.equal(fullSuffix('local.example'), 'local.example');
+test('finalExtension returns the last segment, not the whole multi-dot suffix (#4580)', () => {
+  // #4580: the guard compared `local.example` (everything after the first
+  // dot) against a set of final extensions like `example`, so a correct
+  // implementation must return the last segment, not the whole token.
   assert.equal(finalExtension('local.example'), 'example');
-  assert.notEqual(fullSuffix('local.example'), finalExtension('local.example'));
+  assert.notEqual(finalExtension('local.example'), 'local.example');
 });
 
 test('fc: finalExtension never contains a dot and is always a suffix of the input', () => {

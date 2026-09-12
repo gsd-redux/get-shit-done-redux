@@ -86,6 +86,7 @@
 'use strict';
 
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
+const { finalExtension } = require('./lib/filename-classification.js');
 
 // Fail open on a hook-internal error (see header). Declared ONCE so the
 // outer catch states its policy explicitly (#3911).
@@ -151,7 +152,7 @@ function isSecretBasename(name) {
   if (name === '.env' || name === '.secrets') return true;
   if (name.startsWith('.env.')) {
     const suffix = name.slice('.env.'.length);
-    return suffix !== '' && !NON_SECRET_ENV_SUFFIXES.has(suffix.toLowerCase());
+    return suffix !== '' && !NON_SECRET_ENV_SUFFIXES.has(finalExtension(suffix).toLowerCase());
   }
   return false;
 }
@@ -247,7 +248,19 @@ function globAltSelectsSecret(alt) {
   if (/^[*?]+$/.test(alt)) return false; // pure wildcard: equivalent to no glob
   const wild = alt.search(/[*?[]/);
   const lit = wild === -1 ? alt : alt.slice(0, wild);
-  if (lit.startsWith('.env.')) return true;
+  // #4580: when there is no wildcard, `alt` (== `lit`) is a WHOLE literal
+  // filename, so classify it exactly the same way Read/Bash do (by its
+  // FINAL extension, via isSecretBasename) rather than by a `.env.`-prefix
+  // heuristic — that heuristic mis-blocked multi-dot templates like
+  // `.env.local.example`. When a wildcard IS present, `lit` is only a
+  // PARTIAL literal prefix (`.env.local.exam*` can still select
+  // `.env.local`), which cannot be classified exactly, so the original
+  // conservative prefix rule stays.
+  if (wild === -1) {
+    if (isSecretBasename(lit)) return true;
+  } else if (lit.startsWith('.env.')) {
+    return true;
+  }
   if (lit !== '' && ('.env.'.startsWith(lit) || '.secrets'.startsWith(lit))) return true;
   let re;
   try {
