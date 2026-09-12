@@ -356,6 +356,97 @@ describe('gsd-secret-read-guard: Kimi vocabulary', () => {
   });
 });
 
+describe('regressions: #4580 — final-extension classification', () => {
+  // #4580: isSecretBasename compares everything after `.env.` as ONE token
+  // against the template set {example, sample, template, dist}, so a
+  // multi-segment template name like `.env.local.example` compares the
+  // whole tail `local.example` against that set and wrongly blocks. The
+  // classification must key off the FINAL extension, not the full suffix.
+  const TEMPLATES = [
+    '.env.local.example',
+    '.env.production.example',
+    '.env.staging.sample',
+    '.env.local.template',
+    '.ENV.Local.EXAMPLE',
+    'cfg/.env.local.example',
+    '.env.dist.example',
+    '.env.example.example',
+  ];
+  const SECRETS = [
+    // CRITICAL: final extension is `local`, not a template — this IS a secret.
+    '.env.example.local',
+    '.env.local.',
+    '.env.local',
+    '.env',
+    '.secrets',
+    '.env.production',
+  ];
+
+  describe('Read arm', () => {
+    for (const p of TEMPLATES) {
+      test(`allows Read of ${JSON.stringify(p)}`, () => {
+        assertAllowed(runHook(read(p)), p);
+      });
+    }
+    for (const p of SECRETS) {
+      test(`blocks Read of ${JSON.stringify(p)}`, () => {
+        assertBlocked(runHook(read(p)), p, { tool: 'Read', path: p });
+      });
+    }
+    test('does not change unrelated allow: .env. stays allowed', () => {
+      assertAllowed(runHook(read('.env.')), '.env.');
+    });
+    test('does not change unrelated allow: .envrc stays allowed', () => {
+      assertAllowed(runHook(read('.envrc')), '.envrc');
+    });
+  });
+
+  describe('Bash arm — git show HEAD:<path>', () => {
+    test('allows a multi-segment template name via git show', () => {
+      assertAllowed(runHook(bash('git show HEAD:.env.local.example')), 'HEAD:.env.local.example');
+    });
+    test('still blocks a plain secret via git show', () => {
+      assertBlocked(runHook(bash('git show HEAD:.env.local')), 'HEAD:.env.local', { tool: 'Bash', path: 'HEAD:.env.local' });
+    });
+  });
+
+  describe('Grep glob arm — globAltSelectsSecret parity', () => {
+    const allowedGlobs = ['.env.local.example', 'sub/.env.local.example', '{.env.local.example,zzz.ts}'];
+    for (const g of allowedGlobs) {
+      test(`allows glob ${JSON.stringify(g)}`, () => {
+        assertAllowed(runHook(grep({ glob: g })), g);
+      });
+    }
+    const blockedGlobs = ['.env.local', '.env', '.env.local.exam*', '.e*', '.env*', '*.local', '{.env.local,zzz.ts}'];
+    for (const g of blockedGlobs) {
+      test(`blocks glob ${JSON.stringify(g)}`, () => {
+        assertBlocked(runHook(grep({ glob: g })), g, { tool: 'Grep', path: g });
+      });
+    }
+    const allowedRegressionGlobs = ['*.example', '*', '?'];
+    for (const g of allowedRegressionGlobs) {
+      test(`allows glob ${JSON.stringify(g)} (regression)`, () => {
+        assertAllowed(runHook(grep({ glob: g })), g);
+      });
+    }
+  });
+
+  describe('cross-arm parity — Read and exact-literal Grep glob must agree', () => {
+    for (const name of TEMPLATES) {
+      test(`Read and glob both allow ${JSON.stringify(name)}`, () => {
+        assertAllowed(runHook(read(name)), `read:${name}`);
+        assertAllowed(runHook(grep({ glob: name })), `glob:${name}`);
+      });
+    }
+    for (const name of SECRETS) {
+      test(`Read and glob both block ${JSON.stringify(name)}`, () => {
+        assertBlocked(runHook(read(name)), `read:${name}`, { tool: 'Read', path: name });
+        assertBlocked(runHook(grep({ glob: name })), `glob:${name}`, { tool: 'Grep', path: name });
+      });
+    }
+  });
+});
+
 describe('gsd-secret-read-guard: scope and crash policy', () => {
   test('ignores other tools even when they name a secret file', () => {
     assertAllowed(runHook({ tool_name: 'Write', tool_input: { file_path: '.env', content: 'X=1' } }), 'Write');
