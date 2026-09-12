@@ -431,17 +431,19 @@ describe('regressions: #4580 — final-extension classification', () => {
     }
   });
 
-  describe('cross-arm parity — Read and exact-literal Grep glob must agree', () => {
+  describe('cross-arm parity — Read, exact-literal Grep glob, and Bash must agree', () => {
     for (const name of TEMPLATES) {
-      test(`Read and glob both allow ${JSON.stringify(name)}`, () => {
+      test(`Read, glob and Bash all allow ${JSON.stringify(name)}`, () => {
         assertAllowed(runHook(read(name)), `read:${name}`);
         assertAllowed(runHook(grep({ glob: name })), `glob:${name}`);
+        assertAllowed(runHook(bash('cat ' + name)), `bash:${name}`);
       });
     }
     for (const name of SECRETS) {
-      test(`Read and glob both block ${JSON.stringify(name)}`, () => {
+      test(`Read, glob and Bash all block ${JSON.stringify(name)}`, () => {
         assertBlocked(runHook(read(name)), `read:${name}`, { tool: 'Read', path: name });
         assertBlocked(runHook(grep({ glob: name })), `glob:${name}`, { tool: 'Grep', path: name });
+        assertBlocked(runHook(bash('cat ' + name)), `bash:${name}`, { tool: 'Bash', path: name });
       });
     }
   });

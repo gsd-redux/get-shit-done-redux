@@ -26,8 +26,15 @@
 //   .env, .secrets, and .env.<suffix> — EXCEPT .env.example / .env.sample /
 //   .env.template / .env.dist, which are the non-secret templates GSD's own
 //   phase prompt tells executors to read.
-//   Stated cost: this is narrower than the retired `Read(.env.*)` rule — a
-//   real secret stored in `.env.example` is not protected.
+//   Stated cost (#4580): the exemption matches the token's FINAL EXTENSION,
+//   not the whole name, so the trusted set is `.env.<anything>.example` /
+//   `.sample` / `.template` / `.dist` — an unbounded family, not four fixed
+//   names. A real secret named `.env.prod-real-secrets.example` is NOT
+//   protected, and renaming any secret to end in one of those four
+//   extensions bypasses the guard across Read, Grep and Bash alike. This is
+//   the deliberate cost of #4580, which fixed the prior whole-name
+//   comparison wrongly refusing committed, secret-free templates like
+//   `.env.local.example`.
 //   A token containing `:` is also tested on the part after its LAST `:`,
 //   so `git show HEAD:.env`, `origin/main:config/.env` and `C:\proj\.env`
 //   are caught without git-specific parsing. No whitespace trimming: the
